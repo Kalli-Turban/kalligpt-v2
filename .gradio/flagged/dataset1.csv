@@ -1,0 +1,3 @@
+eingabe,output,timestamp
+Parkscheinautomaten,"📌 **Fehler**
+📝 {""code"":""PGRST202"",""details"":""Searched for the function public.match_antraege with parameters match_count, match_threshold, query_embedding or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache."",""hint"":null,""message"":""Could not find the function public.match_antraege(match_count, match_threshold, query_embedding) in the schema cache""}",2025-07-23 17:42:29.684846
