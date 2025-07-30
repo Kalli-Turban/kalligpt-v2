@@ -52,7 +52,7 @@ def frage_kalli(prompt, debugmodus):
             + f"{(m.get('inhalt') or '').strip()}\n"
             + (f"[📎 PDF öffnen]({m.get('pdf_url')})" if (m.get('pdf_url') or "").startswith('http') else "🔗 Kein PDF-Link vorhanden")
             for m in matches
-        ]
+        ])
 
         return header + antwort
 
