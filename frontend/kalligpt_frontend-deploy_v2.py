@@ -1,8 +1,14 @@
 import os
 import gradio as gr
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from supabase import create_client
 from dotenv import load_dotenv
 from openai import OpenAI
+from frontend.markdown_karten_renderer import render_markdown_kartenansicht
+
 # nur lokales Test Frontend!
 
 # 🌱 Umgebungsvariablen laden
@@ -82,18 +88,19 @@ def fetch_data(offset=0, limit=3):
     total_count = supabase.table(table).select("id", count="exact").execute().count
 
     # Text anhängen
-    
-    cached_results["text"] = "\n\n".join([
-        f"🗕️ {entry['datum']} – {entry['thema']}\n"
-        f"📝 {entry['titel']}\n"
-        f"📌 Drucksache: {entry.get('drucksache', 'n/a')}\n"
-        + (
-            f"[📎 PDF öffnen]({entry['pdf_url']})"
-            if (entry.get('pdf_url') or "").startswith("http")
-            else "🚫  Kein PDF-Link vorhanden"
-        )
-        for entry in data
-    ])
+    cached_results["text"] = render_markdown_kartenansicht(data)
+
+  #  cached_results["text"] = "\n\n".join([
+   #     f"🗕️ {entry['datum']} – {entry['thema']}\n"
+    #    f"📝 {entry['titel']}\n"
+     #   f"📌 Drucksache: {entry.get('drucksache', 'n/a')}\n"
+      #  + (
+       #     f"[📎 PDF öffnen]({entry['pdf_url']})"
+        #    if (entry.get('pdf_url') or "").startswith("http")
+       #  #   else "🚫  Kein PDF-Link vorhanden"
+       # )
+ #       for entry in data
+ #   ])
 
     next_offset = offset + limit
     more_to_load = next_offset < total_count
