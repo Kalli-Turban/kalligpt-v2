@@ -3,6 +3,7 @@ import gradio as gr
 from supabase import create_client
 from dotenv import load_dotenv
 from openai import OpenAI
+# nur lokales Test Frontend!
 
 # 🌱 Umgebungsvariablen laden
 load_dotenv()
@@ -39,7 +40,7 @@ def frage_kalli(prompt, debugmodus):
         total_matches = len(all_matches)
 
         if not all_matches:
-            return "😕 Leider keine passenden Inhalte gefunden."
+            return "🚫 Leider keine passenden Inhalte gefunden."
 
         # Dann: nur die Top-N ausgeben
         matches = all_matches[:5]
@@ -86,9 +87,9 @@ def fetch_data(offset=0, limit=3):
         f"📝 {entry['titel']}\n"
         f"📌 Drucksache: {entry.get('drucksache', 'n/a')}\n"
         + (
-            f"[📄 PDF öffnen]({entry['pdf_url']})"
+            f"[📎 PDF öffnen]({entry['pdf_url']})"
             if (entry.get("pdf_url") or "").startswith("http")
-            else "*🔗 Kein PDF-Link vorhanden*"
+            else "🚫  Kein PDF-Link vorhanden"
         )
         for entry in data
     ])
@@ -110,6 +111,11 @@ def show_entries(table, offset=0):
     offset_box = 0
     return fetch_data(offset=0)
 
+def reset_output():
+    cached_results["text"] = ""
+    return gr.update(value=""), gr.update(value=0)
+
+
 # 📦 Gradio App
 with gr.Blocks() as demo:
     with gr.Tabs():
@@ -127,8 +133,8 @@ with gr.Blocks() as demo:
             # diagnose_button = gr.Button("Diagnose starten")
             # diagnose_button.click(fn=diagnose_kalli, outputs=diagnose_output)
 
-        with gr.TabItem("Polit-Viewer"):
-            gr.Markdown("## 📂 Politische Dokumente durchsuchen")
+        with gr.TabItem("Listen-Viewer"):
+            gr.Markdown("## 📂 Anträge, Anfragen durchsuchen")
 
             with gr.Row():
                 btn_antraege = gr.Button("📂 Anträge")
@@ -137,6 +143,9 @@ with gr.Blocks() as demo:
                 btn_gross = gr.Button("🗏️ Große Anfragen")
 
             output = gr.Markdown(label="Ergebnisse")
+            reset_button = gr.Button("♻️ Zurücksetzen")
+            reset_button.click(fn=lambda: gr.update(value=""), outputs=output)
+
             offset_box = gr.Number(value=0, visible=False)
             more_button = gr.Button("🔁 Mehr anzeigen", visible=False)
 
@@ -153,7 +162,7 @@ with gr.Blocks() as demo:
                               outputs=[output, offset_box, more_button])
 
 # Für Deployment auf Render oder Server
-demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+# demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
 # Für lokale Ausführung (z. B. auf dem eigenen PC)
-# demo.launch()
+demo.launch()
