@@ -163,7 +163,7 @@ with gr.Blocks() as demo:
                               outputs=[output, offset_box, more_button])
 
 # Für Deployment auf Render oder Server
-# demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
 # Für lokale Ausführung (z. B. auf dem eigenen PC)
-demo.launch()
+# demo.launch()
