@@ -50,10 +50,9 @@ def frage_kalli(prompt, debugmodus):
             f"📌 **{m.get('titel', 'Unbekannter Titel')}** ({m.get('kategorie', 'ohne Kategorie')}, {m.get('datum', 'kein Datum')})\n"
             + (f"🔹 Ähnlichkeit: {round(m.get('similarity', 0), 3)}\n" if debugmodus else "")
             + f"{(m.get('inhalt') or '').strip()}\n"
-            + (f"[📎 PDF öffnen]({m.get('pdf_url')})" if (m.get('pdf_url') or "").startswith('http') else "🔗 Kein PDF-Link vorhanden")
+            + (f"[📌 PDF öffnen]({m.get('pdf_url')})" if (m.get('pdf_url') or "").startswith('http') else "🔗 Kein PDF-Link vorhanden")
             for m in matches
         ])
-
 
         return header + antwort
 
@@ -61,56 +60,9 @@ def frage_kalli(prompt, debugmodus):
         return f"💥 Fehler bei der Verarbeitung: {e}"
 
 
-
-# 🧪 Diagnosefunktion
-def diagnose_kalli():
-    report = []
-    try:
-        supabase.table("antraege").select("id").limit(1).execute()
-        report.append("✅ Supabase-Verbindung OK")
-    except Exception as e:
-        report.append(f"❌ Supabase-Verbindung fehlgeschlagen: {e}")
-
-    try:
-        view = supabase.table("match_bvv_dokumente").select("*").limit(1).execute()
-        keys = list(view.data[0].keys()) if view.data else []
-        if "pdf_url" in keys:
-            report.append("✅ View `match_bvv_dokumente` liefert `pdf_url`")
-        else:
-            report.append("⚠️ View OK, aber `pdf_url` fehlt")
-    except Exception as e:
-        report.append(f"❌ Fehler beim Lesen der View: {e}")
-
-    try:
-        embedding = openai_client.embeddings.create(
-            input="Testfrage zur Verkehrssicherheit",
-            model="text-embedding-3-small"
-        ).data[0].embedding
-
-        result = supabase.rpc(
-            "match_bvv_dokumente",
-            {
-                "query_embedding": embedding,
-                "match_threshold": 0.2,
-                "match_count": 1
-            }
-        ).execute()
-
-        if not result.data:
-            report.append("⚠️ RPC erfolgreich, aber keine Ergebnisse geliefert")
-        elif "pdf_url" in result.data[0]:
-            report.append("✅ RPC liefert `pdf_url` mit")
-        else:
-            report.append("⚠️ RPC liefert Ergebnis, aber kein `pdf_url`")
-    except Exception as e:
-        report.append(f"❌ Fehler bei RPC-Test: {e}")
-
-    return "\n".join(report)
-
 # 🔧 Lazy Loader Logik
 table_selector = {"selected": "antraege"}
 cached_results = {"text": ""}
-
 
 def fetch_data(offset=0, limit=3):
     table = table_selector["selected"]
@@ -118,7 +70,7 @@ def fetch_data(offset=0, limit=3):
     # Einträge laden
     response = (
         supabase.table(table)
-        .select("id, datum, titel, thema, drucksache")
+        .select("id, datum, titel, thema, drucksache, pdf_url")
         .order("datum", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
@@ -130,7 +82,14 @@ def fetch_data(offset=0, limit=3):
 
     # Text anhängen
     cached_results["text"] += ("\n\n" if cached_results["text"] else "") + "\n\n".join([
-        f"📅 {entry['datum']} – {entry['thema']}\n📝 {entry['titel']}\n📎 Drucksache: {entry.get('drucksache', 'n/a')}"
+        f"🗕️ {entry['datum']} – {entry['thema']}\n"
+        f"📝 {entry['titel']}\n"
+        f"📌 Drucksache: {entry.get('drucksache', 'n/a')}\n"
+        + (
+            f"[📄 PDF öffnen]({entry['pdf_url']})"
+            if (entry.get("pdf_url") or "").startswith("http")
+            else "*🔗 Kein PDF-Link vorhanden*"
+        )
         for entry in data
     ])
 
@@ -144,8 +103,6 @@ def fetch_data(offset=0, limit=3):
     show_button = gr.update(visible=more_to_load)
 
     return header + cached_results["text"], next_offset, show_button
-
-
 
 def show_entries(table, offset=0):
     table_selector["selected"] = table
@@ -165,20 +122,21 @@ with gr.Blocks() as demo:
             frage_button.click(fn=frage_kalli, inputs=[frage_input, debug_checkbox], outputs=antwort_output)
 
         with gr.TabItem("Diagnose"):
-            diagnose_output = gr.Textbox(label="Systembericht")
-            diagnose_button = gr.Button("Diagnose starten")
-            diagnose_button.click(fn=diagnose_kalli, outputs=diagnose_output)
+            gr.Markdown("🚩 Diagnosefunktion aktuell deaktiviert.")
+            # diagnose_output = gr.Textbox(label="Systembericht")
+            # diagnose_button = gr.Button("Diagnose starten")
+            # diagnose_button.click(fn=diagnose_kalli, outputs=diagnose_output)
 
         with gr.TabItem("Polit-Viewer"):
             gr.Markdown("## 📂 Politische Dokumente durchsuchen")
 
             with gr.Row():
-                btn_antraege = gr.Button("🗂️ Anträge")
+                btn_antraege = gr.Button("📂 Anträge")
                 btn_muendlich = gr.Button("💬 Mündliche Anfragen")
                 btn_klein = gr.Button("📄 Kleine Anfragen")
-                btn_gross = gr.Button("🧾 Große Anfragen")
+                btn_gross = gr.Button("🗏️ Große Anfragen")
 
-            output = gr.Textbox(label="Ergebnisse", lines=20)
+            output = gr.Markdown(label="Ergebnisse")
             offset_box = gr.Number(value=0, visible=False)
             more_button = gr.Button("🔁 Mehr anzeigen", visible=False)
 
@@ -194,6 +152,8 @@ with gr.Blocks() as demo:
             more_button.click(fn=fetch_data, inputs=[offset_box],
                               outputs=[output, offset_box, more_button])
 
-demo.launch()
+# Für Deployment auf Render oder Server
+demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
-
+# Für lokale Ausführung (z. B. auf dem eigenen PC)
+# demo.launch()
