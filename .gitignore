@@ -7,3 +7,18 @@ venv/
 # Lokale Hilfsskripte – nicht mit ins Repo!
 embed_einzelantrag.py
 embed_kalli_antraege.py
+
+# Office-Dateien und PDFs
+*.docx
+*.xlsx
+*.pdf
+*.zip
+
+# Eigene lokale Ordner
+Backup/
+Handbuch/
+docs/
+Kalli_BACKUP/
+
+# Windows-Kram
+Thumbs.db
