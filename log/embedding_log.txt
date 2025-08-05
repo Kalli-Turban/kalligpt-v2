@@ -2,3 +2,5 @@
 [2025-07-28 20:18:25] [❌] ./docs/1565.json → Fehler beim Einlesen: [Errno 2] No such file or directory: './docs/1565.json'
 [2025-07-28 20:18:52] [❌] 1565/XXI → Fehler beim Insert: {'message': 'new row violates row-level security policy for table "antraege"', 'code': '42501', 'hint': None, 'details': None}
 [2025-07-28 20:24:55] [✓] 1565/XXI → Eingefügt
+[2025-08-05 13:12:19] [❌] json/0246-xxi-nebenrouten.json → Fehler beim Einlesen: [Errno 2] No such file or directory: 'json/0246-xxi-nebenrouten.json'
+[2025-08-05 13:12:53] [❌] json/0246-xxi-nebenrouten.json → Fehler beim Einlesen: [Errno 2] No such file or directory: 'json/0246-xxi-nebenrouten.json'
