@@ -23,6 +23,7 @@ Kalli_BACKUP/
 json/
 log/
 Spielwiese/
+events/
 
 # Lokale Embedding-Skripte
 embedding/

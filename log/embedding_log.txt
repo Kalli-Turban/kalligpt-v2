@@ -4,3 +4,6 @@
 [2025-07-28 20:24:55] [✓] 1565/XXI → Eingefügt
 [2025-08-05 13:12:19] [❌] json/0246-xxi-nebenrouten.json → Fehler beim Einlesen: [Errno 2] No such file or directory: 'json/0246-xxi-nebenrouten.json'
 [2025-08-05 13:12:53] [❌] json/0246-xxi-nebenrouten.json → Fehler beim Einlesen: [Errno 2] No such file or directory: 'json/0246-xxi-nebenrouten.json'
+Kalli war hier.
+Kalli war hier.
+Kalli war hier.
