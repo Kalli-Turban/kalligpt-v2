@@ -228,12 +228,12 @@ with gr.Blocks() as demo:
     understood.change(_toggle_disclaimer, inputs=understood, outputs=disclaimer_box)
 
     # ----- Header -----
-    with gr.Row(elem_classes="kalli-header"):
-        if os.path.exists(LOGO_PATH):
-            #gr.Image(LOGO_PATH, show_label=False, height=40, width=40, container=False)
-            gr.Image(LOGO_PATH, show_label=False, container=False, elem_classes="logo")
-
-        gr.HTML(f"<div><div class='kalli-title'>{APP_TITLE}</div><div class='kalli-subtitle'>{__APP_VERSION__}</div></div>")
+  #  with gr.Row(elem_classes="kalli-header"):
+   #     if os.path.exists(LOGO_PATH):
+   #         #gr.Image(LOGO_PATH, show_label=False, height=40, width=40, container=False)
+   #         gr.Image(LOGO_PATH, show_label=False, container=False, elem_classes="logo")#
+#
+ #       gr.HTML(f"<div><div class='kalli-title'>{APP_TITLE}</div><div class='kalli-subtitle'>{__APP_VERSION__}</div></div>")
 
 
     with gr.Tabs():
