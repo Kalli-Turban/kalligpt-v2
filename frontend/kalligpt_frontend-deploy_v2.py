@@ -26,11 +26,11 @@ from openai import OpenAI
 import gradio as gr
 from dotenv import load_dotenv
 from supabase import create_client
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from frontend.markdown_karten_renderer import render_markdown_kartenansicht
+#sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+#from frontend.markdown_karten_renderer import render_markdown_kartenansicht
 
 # ----- App Version -----
-__APP_VERSION__ = "BVV_Frontend v1.1 (Rebuild)"
+#__APP_VERSION__ = "BVV_Frontend v1.1 (Rebuild)"
 
 # ----- Supabase Setup -----
 # 🌱 Umgebungsvariablen laden
