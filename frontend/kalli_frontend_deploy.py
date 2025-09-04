@@ -20,12 +20,23 @@ from supabase import create_client
 from dotenv import load_dotenv
 from openai import OpenAI
 
+# ----- App Version -----
+__APP_VERSION__ = "Frontend BVV v1.1 (Rebuild)"
+
+
 # 🌱 Umgebungsvariablen laden
 load_dotenv()
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+
+#Konstanten
+APP_TITLE = "Ein Service von Karl-Heinz -Kalli- Turban • BVV-Fraktion TeS"
+LOGO_PATH = "assets/logo_160_80.png"
+
+
+
 
 # 🔌 Clients initialisieren
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -207,7 +218,6 @@ def show_entries(table, offset=0):
 # BLOCK 4 — UI & Handlers
 # =============================
 
-
 CUSTOM_CSS += """
 .kalli-disclaimer {
   display:flex; align-items:center; gap:14px;
@@ -219,9 +229,29 @@ CUSTOM_CSS += """
 }
 """
 
-
 # 📦 Gradio App
-with gr.Blocks() as demo:
+
+
+with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as demo:
+#with gr.Blocks() as demo:
+
+    # Disclaimer-Row
+    with gr.Row(visible=True, elem_classes="kalli-disclaimer") as disclaimer_box:
+        gr.HTML(
+            "⚠️ Hinweis: Diese Anwendung lädt Schriften von externen Anbietern "
+            "(z. B. Google Fonts). Wenn du das nicht möchtest, nutze die App bitte nicht weiter."
+        )
+        understood = gr.Checkbox(label="Verstanden (nicht mehr anzeigen)", value=False)
+
+    def _toggle_disclaimer(checked: bool):
+        return gr.update(visible=not checked)
+
+    understood.change(_toggle_disclaimer, inputs=understood, outputs=disclaimer_box)
+
+
+
+
+
     with gr.Tabs():
         with gr.TabItem("Fragen"):
             with gr.Row():
@@ -231,10 +261,10 @@ with gr.Blocks() as demo:
             frage_button = gr.Button("Absenden")
             frage_button.click(fn=frage_kalli, inputs=[frage_input, debug_checkbox], outputs=antwort_output)
 
-        with gr.TabItem("Diagnose"):
-            diagnose_output = gr.Textbox(label="Systembericht")
-            diagnose_button = gr.Button("Diagnose starten")
-            diagnose_button.click(fn=diagnose_kalli, outputs=diagnose_output)
+        #with gr.TabItem("Diagnose"):
+        #    diagnose_output = gr.Textbox(label="Systembericht")
+        #    diagnose_button = gr.Button("Diagnose starten")
+        #    diagnose_button.click(fn=diagnose_kalli, outputs=diagnose_output)
 
         with gr.TabItem("Polit-Viewer"):
             gr.Markdown("## 📂 Politische Dokumente durchsuchen")
@@ -263,7 +293,7 @@ with gr.Blocks() as demo:
 
 
 # Für Deployment auf Render oder Server
-#demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
 # Für lokale Ausführung (z. B. auf dem eigenen PC)
-demo.launch()
+#demo.launch()
