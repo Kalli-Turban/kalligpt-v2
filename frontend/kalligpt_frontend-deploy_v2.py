@@ -14,20 +14,27 @@
 # =============================
 
 # ----- Imports & Setup -----
-import os
-import gradio as gr
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from supabase import create_client
-from dotenv import load_dotenv
+
+import os
+import math
+import re
+import sys
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from openai import OpenAI
+import gradio as gr
+from dotenv import load_dotenv
+from supabase import create_client
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from frontend.markdown_karten_renderer import render_markdown_kartenansicht
 
+# ----- App Version -----
+__APP_VERSION__ = "BVV_Frontend v1.1 (Rebuild)"
+
+# ----- Supabase Setup -----
 # 🌱 Umgebungsvariablen laden
 load_dotenv()
-
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -35,6 +42,58 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 # 🔌 Clients initialisieren
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# ----- Konstanten -----
+EVENTS_PER_PAGE = 6
+APP_TITLE = "Ein Service von Karl-Heinz -Kalli- Turban • Arbeit Fraktion der AfD TeS"
+LOGO_PATH = "assets/logo_160_80.png"
+
+DISCLAIMER_HTML = """
+<div class="kalli-disclaimer">
+⚠️ Hinweis: Diese Anwendung lädt Schriften von externen Anbietern (z. B. Google Fonts).
+Wenn du das nicht möchtest, nutze die App bitte nicht weiter.
+</div>
+"""
+
+# ----- Zeit / Datum -----
+def today_berlin() -> str:
+    try:
+        return datetime.now(ZoneInfo("Europe/Berlin")).date().isoformat()
+    except Exception:
+        return date.today().isoformat()
+
+# ----- CSS -----
+CUSTOM_CSS = """
+#footer, footer { display:none !important; }
+button[aria-label="Herunterladen"], button[aria-label="Vollbild"],
+button[title="Herunterladen"], button[title="Vollbild"],
+button[aria-label="Fullscreen"], button[title="Fullscreen"] { display:none !important; }
+.kalli-header { display:flex; align-items:center; gap:12px; padding:10px 12px;
+  border-radius:12px; background:#87CEEB; overflow-x:visible; white-space:normal; }
+.kalli-header::-webkit-scrollbar { display:none; }
+.kalli-header { scrollbar-width:none; }
+.kalli-title { font-weight:700; font-size:1.05rem; color:#000; }
+.kalli-subtitle { font-weight:500; font-size:0.9rem; opacity:0.8; }
+.kalli-actions { gap:12px; flex-wrap:wrap; }
+.kalli-actions .gr-button { flex: 1 1 200px; }
+.logo img { width:160px; height:80px; border-radius:10%; object-fit:cover; }
+.kalli-event-level { font-weight: bold; color: #555; margin-bottom: 6px; }
+
+@media print {
+  body * { visibility: hidden !important; }
+  #kalli-events, #kalli-events * { visibility: visible !important; }
+  #kalli-events { position: absolute !important; left: 0; top: 0; width: 100%;
+    padding: 0 !important; background: #fff !important; }
+
+  /* Filterleiste, Header, Aktionen komplett aus dem Layout entfernen */
+  .kalli-header, .kalli-actions, #filterbar { display: none !important; }
+  .kalli-header *, .kalli-actions *, #filterbar * { display: none !important; }
+
+  /* Sicherheitsnetz gegen Tooltips/Popover/Portals */
+  [role="tooltip"], [data-testid="tooltip"], .tooltip, .popover { display: none !important; }
+  #btn-clear { display: none !important; }
+}
+"""
 
 # 🧠 Semantische Anfrage
 
@@ -137,9 +196,46 @@ def reset_output():
     cached_results["text"] = ""
     return gr.update(value=""), gr.update(value=0)
 
+# =============================
+# BLOCK 4 — UI & Handlers
+# =============================
+
+CUSTOM_CSS += """
+.kalli-disclaimer {
+  display:flex; align-items:center; gap:14px;
+  background:#ffebcc; color:#333;
+  padding:10px 14px; border:1px solid #e6c07b; border-radius:8px;
+}
+@media (max-width:700px){
+  .kalli-disclaimer { flex-direction:column; align-items:stretch; }
+}
+"""
 
 # 📦 Gradio App
 with gr.Blocks() as demo:
+
+    # Disclaimer-Row
+    with gr.Row(visible=True, elem_classes="kalli-disclaimer") as disclaimer_box:
+        gr.HTML(
+            "⚠️ Hinweis: Diese Anwendung lädt Schriften von externen Anbietern "
+            "(z. B. Google Fonts). Wenn du das nicht möchtest, nutze die App bitte nicht weiter."
+        )
+        understood = gr.Checkbox(label="Verstanden (nicht mehr anzeigen)", value=False)
+
+    def _toggle_disclaimer(checked: bool):
+        return gr.update(visible=not checked)
+
+    understood.change(_toggle_disclaimer, inputs=understood, outputs=disclaimer_box)
+
+    # ----- Header -----
+    with gr.Row(elem_classes="kalli-header"):
+        if os.path.exists(LOGO_PATH):
+            #gr.Image(LOGO_PATH, show_label=False, height=40, width=40, container=False)
+            gr.Image(LOGO_PATH, show_label=False, container=False, elem_classes="logo")
+
+        gr.HTML(f"<div><div class='kalli-title'>{APP_TITLE}</div><div class='kalli-subtitle'>{__APP_VERSION__}</div></div>")
+
+
     with gr.Tabs():
         with gr.TabItem("Fragen"):
             with gr.Row():
