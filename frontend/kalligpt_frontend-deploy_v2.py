@@ -163,18 +163,6 @@ def fetch_data(offset=0, limit=3):
     # Text anhängen
     cached_results["text"] = render_markdown_kartenansicht(data)
 
-  #  cached_results["text"] = "\n\n".join([
-   #     f"🗕️ {entry['datum']} – {entry['thema']}\n"
-    #    f"📝 {entry['titel']}\n"
-     #   f"📌 Drucksache: {entry.get('drucksache', 'n/a')}\n"
-      #  + (
-       #     f"[📎 PDF öffnen]({entry['pdf_url']})"
-        #    if (entry.get('pdf_url') or "").startswith("http")
-       #  #   else "🚫  Kein PDF-Link vorhanden"
-       # )
- #       for entry in data
- #   ])
-
     next_offset = offset + limit
     more_to_load = next_offset < total_count
 
