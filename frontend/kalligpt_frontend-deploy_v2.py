@@ -1,3 +1,19 @@
+# ============================================================
+#  BVV-Frontend
+# 
+#   - v1.1 (2025-09-04) [KI+Kalli]:
+#       • Code refaktorisiert in Blöcke
+#       • Deployment/Local-Test Switch (demo.launch)
+#
+#  Autoren: KI + Kalli
+# ============================================================
+
+
+# =============================
+# BLOCK 1 — Header & Setup
+# =============================
+
+# ----- Imports & Setup -----
 import os
 import gradio as gr
 import sys
@@ -8,8 +24,6 @@ from supabase import create_client
 from dotenv import load_dotenv
 from openai import OpenAI
 from frontend.markdown_karten_renderer import render_markdown_kartenansicht
-
-# nur lokales Test Frontend!
 
 # 🌱 Umgebungsvariablen laden
 load_dotenv()
@@ -170,7 +184,7 @@ with gr.Blocks() as demo:
                               outputs=[output, offset_box, more_button])
 
 # Für Deployment auf Render oder Server
-demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+#demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
 # Für lokale Ausführung (z. B. auf dem eigenen PC)
-# demo.launch()
+demo.launch()
