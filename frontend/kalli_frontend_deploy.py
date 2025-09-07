@@ -1,299 +1,373 @@
 # ============================================================
-#  BVV-Frontend
-# 
-#   - v1.1 (2025-09-04) [KI+Kalli]:
-#       • Code refaktorisiert in Blöcke
-#       • Deployment/Local-Test Switch (demo.launch)
+#  BVV-Frontend v1.0 (Unified Search & Filters, PDF Download)
+#
+#  – Architektur nach Events_app-Vorbild
+#  – Einheitliche Sicht über alle Vorgang-Tabellen
+#  – Filters + Pagination + (optional) Volltext
+#  – Sicheres Frontend (ANON-Key statt Service Role!)
+#  – Beibehaltener Disclaimer + Logo-Platzhalter
 #
 #  Autoren: KI + Kalli
+#  Stand: 2025-09-04
 # ============================================================
-
 # =============================
-# BLOCK 1 — Header & Setup
+# BLOCK 1 — Imports & Setup
 # =============================
-
-# ----- Imports & Setup -----
 
 import os
+from datetime import datetime
 import gradio as gr
-from supabase import create_client
+from supabase import create_client, Client
 from dotenv import load_dotenv
-from openai import OpenAI
+from urllib.parse import urlparse # DPF-Download der Drucksachen
 
-# ----- App Version -----
-__APP_VERSION__ = "Frontend BVV v1.1 (Rebuild)"
+APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
+__APP_VERSION__ = "Version 1.0"
+LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
 
+# 🔐 WICHTIG: Im Frontend NIEMALS den Service-Role-Key verwenden!
+# Nutze den ANON-Key. Schreibvorgänge (z.B. Logs) erfordern passende RLS-Policies.
 
-# 🌱 Umgebungsvariablen laden
+# ----- Supabase Setup -----
 load_dotenv()
-
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-
-#Konstanten
-APP_TITLE = "Ein Service von Karl-Heinz -Kalli- Turban • BVV-Fraktion TeS"
-LOGO_PATH = "assets/logo_160_80.png"
-
-
-
-
-# 🔌 Clients initialisieren
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ----- CSS -----
+sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# =============================
+# BLOCK 2 — CSS
+# =============================
+
 CUSTOM_CSS = """
 #footer, footer { display:none !important; }
-button[aria-label="Herunterladen"], button[aria-label="Vollbild"],
-button[title="Herunterladen"], button[title="Vollbild"],
-button[aria-label="Fullscreen"], button[title="Fullscreen"] { display:none !important; }
 .kalli-header { display:flex; align-items:center; gap:12px; padding:10px 12px;
   border-radius:12px; background:#87CEEB; overflow-x:visible; white-space:normal; }
-.kalli-header::-webkit-scrollbar { display:none; }
-.kalli-header { scrollbar-width:none; }
 .kalli-title { font-weight:700; font-size:1.05rem; color:#000; }
 .kalli-subtitle { font-weight:500; font-size:0.9rem; opacity:0.8; }
-.kalli-actions { gap:12px; flex-wrap:wrap; }
-.kalli-actions .gr-button { flex: 1 1 200px; }
 .logo img { width:160px; height:80px; border-radius:10%; object-fit:cover; }
-.kalli-event-level { font-weight: bold; color: #555; margin-bottom: 6px; }
-
+.kalli-disclaimer { display:flex; align-items:center; gap:14px; background:#ffebcc; color:#333; padding:10px 14px; border:1px solid #e6c07b; border-radius:8px; }
+@media (max-width:700px){ .kalli-disclaimer { flex-direction:column; align-items:stretch; } }
 @media print {
   body * { visibility: hidden !important; }
-  #kalli-events, #kalli-events * { visibility: visible !important; }
-  #kalli-events { position: absolute !important; left: 0; top: 0; width: 100%;
-    padding: 0 !important; background: #fff !important; }
-
-  /* Filterleiste, Header, Aktionen komplett aus dem Layout entfernen */
-  .kalli-header, .kalli-actions, #filterbar { display: none !important; }
-  .kalli-header *, .kalli-actions *, #filterbar * { display: none !important; }
-
-  /* Sicherheitsnetz gegen Tooltips/Popover/Portals */
-  [role="tooltip"], [data-testid="tooltip"], .tooltip, .popover { display: none !important; }
-  #btn-clear { display: none !important; }
+  #results, #results * { visibility: visible !important; }
+  #results { position:absolute !important; left:0; top:0; width:100%; background:#fff !important; }
 }
 """
 
+# =============================
+# BLOCK 3 — Data Layer
+# =============================
 
-# 🧠 Semantische Anfrage
-
-def frage_kalli(prompt, debugmodus):
-    try:
-        response = openai_client.embeddings.create(
-            input=prompt,
-            model="text-embedding-3-small"
+def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[str] | None,
+                   von: str | None, bis: str | None):
+    """Gemeinsame Filter auf eine Supabase-Query anwenden (ilike-Variante)."""
+    if typ:
+        query = query.in_("typ", typ)
+    if status:
+        query = query.in_("status", status)
+    if von:
+        query = query.gte("datum", von)
+    if bis:
+        query = query.lte("datum", bis)
+    if q:
+        # ilike auf mehreren Spalten (einfach, robust)
+        like = f"%{q}%"
+        query = query.or_(
+            ",".join([
+                f"titel.ilike.{like}",
+                f"beschreibung.ilike.{like}",
+                f"schlagworte.ilike.{like}",
+                f"drucksache_nr.ilike.{like}",
+                f"ressort.ilike.{like}",
+                f"fraktion.ilike.{like}",
+            ])
         )
-        embedding = response.data[0].embedding
-
-        # Erst: alle Treffer für Zähler abrufen (match_count hochsetzen)
-        all_matches_response = supabase.rpc(
-            "match_bvv_dokumente",
-            {
-                "query_embedding": embedding,
-                "match_threshold": 0.4,
-                "match_count": 999
-            }
-        ).execute()
-
-        all_matches = all_matches_response.data or []
-        total_matches = len(all_matches)
-
-        if not all_matches:
-            return "😕 Leider keine passenden Inhalte gefunden."
-
-        # Dann: nur die Top-N ausgeben
-        matches = all_matches[:5]
-
-        header = f"**{len(matches)} von {total_matches} Treffern angezeigt:**\n\n"
-
-        antwort = "\n\n".join([
-            f"📌 **{m.get('titel', 'Unbekannter Titel')}** ({m.get('kategorie', 'ohne Kategorie')}, {m.get('datum', 'kein Datum')})\n"
-            + (f"🔹 Ähnlichkeit: {round(m.get('similarity', 0), 3)}\n" if debugmodus else "")
-            + f"{(m.get('inhalt') or '').strip()}\n"
-            + (f"[📎 PDF öffnen]({m.get('pdf_url')})" if (m.get('pdf_url') or "").startswith('http') else "🔗 Kein PDF-Link vorhanden")
-            for m in matches
-        ])
-
-        return header + antwort
-
-    except Exception as e:
-        return f"💥 Fehler bei der Verarbeitung: {e}"
+    return query
 
 
+def clear_filters_keep_results():
+    gr.Info("🧹 Filter zurückgesetzt.")
+    return "", [], [], None, None, "datum:desc", 1, gr.update()  # results bleibt wie es ist
 
-# 🧪 Diagnosefunktion
-def diagnose_kalli():
-    report = []
+
+def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
+                   datum_von: str | None = None, datum_bis: str | None = None,
+                   limit: int = 20, offset: int = 0, sort: str = "datum:desc"):
+    base = "vorgang_view"  # robust ohne Volltext
+    col, direction = (sort.split(":") + ["asc"])[:2]
+
+    query = sb.table(base).select("*")
+    query = _apply_filters(query, q=q, typ=typ, status=status, von=datum_von, bis=datum_bis)
+    query = query.order(col, desc=(direction.lower() == "desc"))
+    query = query.range(offset, offset + limit - 1)
+    res = query.execute()
+    return res.data or []
+
+
+def count_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
+                    datum_von: str | None = None, datum_bis: str | None = None) -> int:
+    base = "vorgang_view"
+    query = sb.table(base).select("id", count="exact")
+    query = _apply_filters(query, q=q, typ=typ, status=status, von=datum_von, bis=datum_bis)
+    res = query.execute()
+    return int(res.count or 0)
+
+
+def get_vorgang_detail(typ: str, id_):
+    table = {
+        "antrag": "antraege",
+        "anfrage_muendlich": "anfragen_muendlich",
+        "anfrage_klein": "anfragen_klein",
+        "anfrage_gross": "anfragen_gross",
+    }.get(typ)
+    if not table:
+        return None
+    res = sb.table(table).select("*").eq("id", id_).single().execute()
+    return res.data
+
+
+def log_action(action: str, query: dict | None = None, vorgang_id=None):
     try:
-        supabase.table("antraege").select("id").limit(1).execute()
-        report.append("✅ Supabase-Verbindung OK")
-    except Exception as e:
-        report.append(f"❌ Supabase-Verbindung fehlgeschlagen: {e}")
+        sb.table("zugriffslog_bvv").insert({
+            "action": action,
+            "query": query and str(query),
+            "vorgang_id": vorgang_id,
+        }).execute()
+    except Exception:
+        # still be silent in frontend
+        pass
 
-    try:
-        view = supabase.table("match_bvv_dokumente").select("*").limit(1).execute()
-        keys = list(view.data[0].keys()) if view.data else []
-        if "pdf_url" in keys:
-            report.append("✅ View `match_bvv_dokumente` liefert `pdf_url`")
-        else:
-            report.append("⚠️ View OK, aber `pdf_url` fehlt")
-    except Exception as e:
-        report.append(f"❌ Fehler beim Lesen der View: {e}")
+# =============================
+# BLOCK 4 — UI Actions
+# =============================
 
-    try:
-        embedding = openai_client.embeddings.create(
-            input="Testfrage zur Verkehrssicherheit",
-            model="text-embedding-3-small"
-        ).data[0].embedding
+STATE = {"limit": 20}
 
-        result = supabase.rpc(
-            "match_bvv_dokumente",
-            {
-                "query_embedding": embedding,
-                "match_threshold": 0.2,
-                "match_count": 1
-            }
-        ).execute()
-
-        if not result.data:
-            report.append("⚠️ RPC erfolgreich, aber keine Ergebnisse geliefert")
-        elif "pdf_url" in result.data[0]:
-            report.append("✅ RPC liefert `pdf_url` mit")
-        else:
-            report.append("⚠️ RPC liefert Ergebnis, aber kein `pdf_url`")
-    except Exception as e:
-        report.append(f"❌ Fehler bei RPC-Test: {e}")
-
-    return "\n".join(report)
-
-# 🔧 Lazy Loader Logik
-table_selector = {"selected": "antraege"}
-cached_results = {"text": ""}
+def _pdf_link(url: str | None) -> str:
+    if not url:
+        return ""  # leer oder None -> nix anzeigen
+    u = str(url).strip()
+    if not u or not (u.startswith("http://") or u.startswith("https://")):
+        return ""  # nur gültige Links
+    host = urlparse(u).netloc or "PDF"
+    return f"\n[🔗 Original-PDF ({host})]({u})"
 
 
-def fetch_data(offset=0, limit=3):
-    table = table_selector["selected"]
+def do_search(q, typ, status, von, bis, page, sort):
+    page = max(1, int(page or 1))
+    limit = STATE["limit"]
+    offset = (page - 1) * limit
 
-    # Einträge laden
-    response = (
-        supabase.table(table)
-        .select("id, datum, titel, thema, drucksache")
-        .order("datum", desc=True)
-        .range(offset, offset + limit - 1)
-        .execute()
+    items = list_vorgaenge(
+        q=q or "",
+        typ=typ or None,
+        status=status or None,
+        datum_von=von or None,
+        datum_bis=bis or None,
+        limit=limit,
+        offset=offset,
+        sort=sort or "datum:desc",
     )
-    data = response.data
+    total = count_vorgaenge(
+        q=q or "",
+        typ=typ or None,
+        status=status or None,
+        datum_von=von or None,
+        datum_bis=bis or None,
+    )
 
-    # Gesamtzahl bestimmen
-    total_count = supabase.table(table).select("id", count="exact").execute().count
+    start = 0 if total == 0 else offset + 1
+    end = min(offset + limit, total)
 
-    # Text anhängen
-    cached_results["text"] += ("\n\n" if cached_results["text"] else "") + "\n\n".join([
-        f"📅 {entry['datum']} – {entry['thema']}\n📝 {entry['titel']}\n📎 Drucksache: {entry.get('drucksache', 'n/a')}"
-        for entry in data
-    ])
-
-    next_offset = offset + limit
-    more_to_load = next_offset < total_count
-
-    # Header-Zeile
-    header = f"**{min(next_offset, total_count)} von {total_count} Einträgen angezeigt:**\n\n---\n"
-
-    # Sichtbarkeit des Buttons dynamisch
-    show_button = gr.update(visible=more_to_load)
-
-    return header + cached_results["text"], next_offset, show_button
+    body = []
+    for row in items:
 
 
+        preview = (row.get("beschreibung") or "")[:220]
+        pdf_md = _pdf_link(row.get("pdf_url"))
+        body.append(
+            f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
+            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"{preview}…  \n"
+            f"ID: `{row.get('id','?')}`{pdf_md}"
+        )
 
-def show_entries(table, offset=0):
-    table_selector["selected"] = table
-    cached_results["text"] = ""
-    offset_box = 0
-    return fetch_data(offset=0)
 
+
+    header = f"**{start}–{end} von {total} Einträgen**\n\n"
+    out_md = header + ("\n\n---\n\n".join(body) if body else "_Keine Treffer._")
+
+    # Toggle Pager-Buttons
+    has_prev = page > 1
+    has_next = end < total
+
+    log_action("list", {"q": q, "typ": typ, "status": status, "von": von, "bis": bis, "page": page, "sort": sort})
+
+    return out_md, gr.update(interactive=has_prev), gr.update(interactive=has_next), page, f"{start}–{end} / {total}"
+
+
+def next_page(q, typ, status, von, bis, page, sort):
+    return do_search(q, typ, status, von, bis, (int(page or 1) + 1), sort)
+
+
+def prev_page(q, typ, status, von, bis, page, sort):
+    return do_search(q, typ, status, von, bis, (max(1, int(page or 1) - 1)), sort)
+
+
+def show_detail(typ, id_):
+    d = get_vorgang_detail(typ, id_)
+    if not d:
+        return "Nicht gefunden."
+    log_action("detail", {"typ": typ}, id_)
+
+    pdf_url = (d.get("pdf_url") or "").strip()
+    pdf_line = ""
+    if pdf_url and pdf_url.startswith(("http://","https://")):
+        pdf_line = f"\n**PDF:** [🔗 Original-PDF]({pdf_url})"
+
+    return (
+    f"### {d.get('titel','(ohne Titel)')}\n"
+    f"**Typ:** {typ}  \n"
+    f"**Status:** {d.get('status','')}  \n"
+    f"**Fraktion:** {d.get('fraktion','')}  \n"
+    f"**Datum:** {d.get('datum','')}\n\n"
+    f"**Text:**\n{d.get('beschreibung') or d.get('text') or ''}\n\n"
+    f"**Drucksache:** {d.get('drucksache_nr','-')}  \n"
+    f"**Ressort:** {d.get('ressort','-')}"
+    f"{pdf_line}\n"
+    )
+
+
+def tipp_des_tages():
+    items = list_vorgaenge(status=["in_beratung"], limit=30, offset=0)
+    if not items:
+        return "—"
+    # deterministic pick: latest
+    row = items[0]
+    return f"### Mein Tipp: {row.get('titel','(ohne Titel)')}\n_{row.get('typ','?')} · {row.get('datum','?')}_"
+
+
+def export_pdf_placeholder():
+    # Platzhalter – hier später HTML->PDF (weasyprint/wkhtmltopdf) einbauen
+    return "🖨️ PDF-Export kommt als nächster Schritt (HTML-Render + PDF)."
 
 # =============================
-# BLOCK 4 — UI & Handlers
+# BLOCK 5 — Gradio UI
 # =============================
-
-CUSTOM_CSS += """
-.kalli-disclaimer {
-  display:flex; align-items:center; gap:14px;
-  background:#ffebcc; color:#333;
-  padding:10px 14px; border:1px solid #e6c07b; border-radius:8px;
-}
-@media (max-width:700px){
-  .kalli-disclaimer { flex-direction:column; align-items:stretch; }
-}
-"""
-
-# 📦 Gradio App
+def greet_on_load():
+    gr.Info("👋 Willkommen im BVV-Frontend des Abgeordneten Kalli Turban!")
 
 
 with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as demo:
-#with gr.Blocks() as demo:
-
-    # Disclaimer-Row
+    # Disclaimer
     with gr.Row(visible=True, elem_classes="kalli-disclaimer") as disclaimer_box:
-        gr.HTML(
-            "⚠️ Hinweis: Diese Anwendung lädt Schriften von externen Anbietern "
-            "(z. B. Google Fonts). Wenn du das nicht möchtest, nutze die App bitte nicht weiter."
-        )
-        understood = gr.Checkbox(label="Verstanden (nicht mehr anzeigen)", value=False)
+        gr.HTML("⚠️ Hinweis: Diese Anwendung lädt ggf. externe Ressourcen (z. B. Fonts). Wenn du das nicht möchtest, nutze die App nicht weiter.")
+        understood = gr.Checkbox(label="Verstanden (nicht mehr anzeigen)")
 
     def _toggle_disclaimer(checked: bool):
         return gr.update(visible=not checked)
 
     understood.change(_toggle_disclaimer, inputs=understood, outputs=disclaimer_box)
+    demo.load(fn=greet_on_load, inputs=[], outputs=[])
+
+    
+   #     tip = gr.Markdown(value=tipp_des_tages())
+
+    # ----- Header -----
+    with gr.Row(elem_classes="kalli-header"):
+        if os.path.exists(LOGO_PATH):
+            gr.Image(
+                LOGO_PATH,
+                show_label=False,
+                container=False,
+                interactive=False,  
+                show_download_button=False, # keine Buttons mehr
+                show_fullscreen_button=False,
+                elem_classes="logo"
+            )
+
+        gr.HTML(f"""
+            <div class="kalli-header-text">
+                <div class="kalli-title">{APP_TITLE}</div>
+                <div class="kalli-title">{__APP_VERSION__}</div>
+            </div>
+        """)
 
 
+ #   with gr.Row(elem_classes="kalli-header"):
+ #       if os.path.exists(LOGO_PATH):
+ #           gr.Image(
+ #               LOGO_PATH,
+ #               show_label=False,
+ #               container=False,
+ #               interactive=False,   # keine Buttons mehr
+ #               elem_classes="logo"
+ #           )
 
+ #       gr.HTML(f"""
+ #           <div class="kalli-header-text">
+ #               <div class="kalli-title">{APP_TITLE}</div>
+ #               <div class="kalli-subtitle">v{__APP_VERSION__}</div>
+ #           </div>
+ #       """)
 
 
     with gr.Tabs():
-        with gr.TabItem("Fragen"):
+        with gr.TabItem("Suche"):
             with gr.Row():
-                frage_input = gr.Textbox(label="Was willst Du wissen?", placeholder="Stell mir eine Frage…")
-                debug_checkbox = gr.Checkbox(label="Debugmodus aktivieren")
-            antwort_output = gr.Markdown()
-            frage_button = gr.Button("Absenden")
-            frage_button.click(fn=frage_kalli, inputs=[frage_input, debug_checkbox], outputs=antwort_output)
-
-        #with gr.TabItem("Diagnose"):
-        #    diagnose_output = gr.Textbox(label="Systembericht")
-        #    diagnose_button = gr.Button("Diagnose starten")
-        #    diagnose_button.click(fn=diagnose_kalli, outputs=diagnose_output)
-
-        with gr.TabItem("Polit-Viewer"):
-            gr.Markdown("## 📂 Politische Dokumente durchsuchen")
-
+                q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext (einfach)", scale=3)
+                typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
+                status = gr.CheckboxGroup(choices=["eingereicht","in_beratung","überwiesen","beantwortet","erledigt","abgelehnt"], label="Status-noch Dummy!", scale=2)
             with gr.Row():
-                btn_antraege = gr.Button("🗂️ Anträge")
-                btn_muendlich = gr.Button("💬 Mündliche Anfragen")
-                btn_klein = gr.Button("📄 Kleine Anfragen")
-                btn_gross = gr.Button("🧾 Große Anfragen")
+           
+                von = gr.DateTime(label="Von", include_time=False, type="string")
+                bis = gr.DateTime(label="Bis", include_time=False, type="string")
+                sort = gr.Dropdown(choices=["datum:desc","datum:asc"], value="datum:desc", label="Sortierung")
+                page = gr.Number(value=1, label="Seite", precision=0)
+            with gr.Row():
+                btn_search = gr.Button("🔎 Suchen", variant="primary")
+                btn_prev = gr.Button("◀️ Zurück", interactive=False)
+                btn_next = gr.Button("Weiter ▶️", interactive=False)
+                pager_info = gr.Markdown("1–0 / 0")
+                btn_export = gr.Button("🖨️ Export PDF")
+                btn_clear = gr.Button("🧹 Filter zurücksetzen", variant="secondary")
 
-            output = gr.Textbox(label="Ergebnisse", lines=20)
-            offset_box = gr.Number(value=0, visible=False)
-            more_button = gr.Button("🔁 Mehr anzeigen", visible=False)
+            results = gr.Markdown(elem_id="results")
 
-            btn_antraege.click(fn=show_entries, inputs=[gr.Textbox(value="antraege", visible=False)],
-                               outputs=[output, offset_box, more_button])
-            btn_muendlich.click(fn=show_entries, inputs=[gr.Textbox(value="anfragen_muendlich", visible=False)],
-                                outputs=[output, offset_box, more_button])
-            btn_klein.click(fn=show_entries, inputs=[gr.Textbox(value="anfragen_klein", visible=False)],
-                            outputs=[output, offset_box, more_button])
-            btn_gross.click(fn=show_entries, inputs=[gr.Textbox(value="anfragen_gross", visible=False)],
-                            outputs=[output, offset_box, more_button])
-
-            more_button.click(fn=fetch_data, inputs=[offset_box],
-                              outputs=[output, offset_box, more_button])
+            btn_search.click(do_search, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_next.click(next_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_prev.click(prev_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_export.click(lambda: export_pdf_placeholder(), [], [results])
+            btn_clear.click(
+                fn=clear_filters_keep_results,
+                inputs=[],
+                outputs=[q, typ, status, von, bis, sort, page, results]
+            )
 
 
-# Für Deployment auf Render oder Server
-demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+            """
+            btn_clear.click(
+                fn=lambda: list(clear_filters().values()),
+                inputs=[],
+                outputs=[q, typ, status, von, bis, sort, page, results]
+            )
+            """
+            
+        with gr.TabItem("Detail"):
+            with gr.Row():
+                in_typ = gr.Dropdown(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ")
+                in_id = gr.Textbox(label="ID")
+                btn_detail = gr.Button("➡️ Laden")
+            detail = gr.Markdown()
+            btn_detail.click()
 
-# Für lokale Ausführung (z. B. auf dem eigenen PC)
-#demo.launch()
+if __name__ == "__main__":
+    # Für Deployment (Render, Docker etc.):
+    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+
+    # Für lokalen Test:
+    #demo.launch()
+
+
