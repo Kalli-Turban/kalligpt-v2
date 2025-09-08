@@ -1,5 +1,7 @@
 # ============================================================
-#  BVV-Frontend v1.0 (Unified Search & Filters, PDF Download)
+#  BVV-Frontend 
+#   v1.1 (Date-Picker via CSS)
+#   v1.0 (Unified Search & Filters, PDF Download)
 #
 #  – Architektur nach Events_app-Vorbild
 #  – Einheitliche Sicht über alle Vorgang-Tabellen
@@ -8,7 +10,7 @@
 #  – Beibehaltener Disclaimer + Logo-Platzhalter
 #
 #  Autoren: KI + Kalli
-#  Stand: 2025-09-04
+#  Stand: 2025-09-08
 # ============================================================
 # =============================
 # BLOCK 1 — Imports & Setup
@@ -143,7 +145,7 @@ def log_action(action: str, query: dict | None = None, vorgang_id=None):
 # BLOCK 4 — UI Actions
 # =============================
 
-STATE = {"limit": 20}
+STATE = {"limit": 10}
 
 def _pdf_link(url: str | None) -> str:
     if not url:
@@ -256,8 +258,22 @@ def export_pdf_placeholder():
 # =============================
 # BLOCK 5 — Gradio UI
 # =============================
+
+CUSTOM_CSS += """
+
+/* Row darf umbrechen + kleiner Abstand */
+.row-dates { flex-wrap: wrap; gap: 8px; align-items: end; }
+
+/* iPad-Hochformat & schmale Screens: Date-Picker jeweils volle Breite */
+@media (max-width: 900px) {
+  .row-dates .gr-column { flex: 1 1 100% !important; }
+  #dp_von, #dp_bis { width: 100% !important; min-width: 100% !important; }
+}
+"""
+
+
 def greet_on_load():
-    gr.Info("👋 Willkommen im BVV-Frontend des Abgeordneten Kalli Turban!")
+    gr.Info("👋 Willkommen im BVV-Frontend des Abgeordneten K.-H. Turban!")
 
 
 with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as demo:
@@ -296,36 +312,28 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
         """)
 
 
- #   with gr.Row(elem_classes="kalli-header"):
- #       if os.path.exists(LOGO_PATH):
- #           gr.Image(
- #               LOGO_PATH,
- #               show_label=False,
- #               container=False,
- #               interactive=False,   # keine Buttons mehr
- #               elem_classes="logo"
- #           )
-
- #       gr.HTML(f"""
- #           <div class="kalli-header-text">
- #               <div class="kalli-title">{APP_TITLE}</div>
- #               <div class="kalli-subtitle">v{__APP_VERSION__}</div>
- #           </div>
- #       """)
-
-
     with gr.Tabs():
         with gr.TabItem("Suche"):
             with gr.Row():
                 q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext (einfach)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
-                status = gr.CheckboxGroup(choices=["eingereicht","in_beratung","überwiesen","beantwortet","erledigt","abgelehnt"], label="Status-noch Dummy!", scale=2)
-            with gr.Row():
-           
-                von = gr.DateTime(label="Von", include_time=False, type="string")
-                bis = gr.DateTime(label="Bis", include_time=False, type="string")
-                sort = gr.Dropdown(choices=["datum:desc","datum:asc"], value="datum:desc", label="Sortierung")
-                page = gr.Number(value=1, label="Seite", precision=0)
+                status = gr.CheckboxGroup(choices=["eingereicht","überwiesen","beantwortet","abgelehnt"], label="Status-noch Dummy!", scale=2)
+            #with gr.Row():
+            with gr.Row(elem_classes="filters"):
+                with gr.Column(scale=1, min_width=160):
+                    sort = gr.Dropdown(choices=["datum:desc","datum:asc"], value="datum:desc", label="Sortierung")
+                with gr.Column(scale=1, min_width=120):
+                    page = gr.Number(value=1, label="Seite", precision=0)
+
+            # --- nur die Datumsfelder ---
+            with gr.Row(elem_classes="row-dates"):
+                with gr.Column(min_width=260):
+                    von = gr.DateTime(label="Von", include_time=False, type="string", elem_id="dp_von")
+                with gr.Column(min_width=260):
+                    bis = gr.DateTime(label="Bis", include_time=False, type="string", elem_id="dp_bis")
+
+
+
             with gr.Row():
                 btn_search = gr.Button("🔎 Suchen", variant="primary")
                 btn_prev = gr.Button("◀️ Zurück", interactive=False)
