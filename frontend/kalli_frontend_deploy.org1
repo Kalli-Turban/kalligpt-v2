@@ -1,6 +1,5 @@
 # ============================================================
 #  BVV-Frontend 
-#   v1.3 (kombiniertes Suchfeld)
 #   v1.2 (IDLE für Suche, leer nicht erlaubt)
 #   v1.1 (Date-Picker via CSS)
 #   v1.0 (Unified Search & Filters, PDF Download)
@@ -12,7 +11,7 @@
 #  – Beibehaltener Disclaimer + Logo-Platzhalter
 #
 #  Autoren: KI + Kalli
-#  Stand: 2025-09-13
+#  Stand: 2025-09-11
 # ============================================================
 # =============================
 # BLOCK 1 — Imports & Setup
@@ -38,7 +37,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
-__APP_VERSION__ = "Version 1.3"
+__APP_VERSION__ = "Version 1.2"
 LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
 PAGE_SIZE = 10
 MIN_LEN = 2         # mind. Länge Suchstring
@@ -80,13 +79,17 @@ CUSTOM_CSS = """
 def _has_any_filter(typ, status, von, bis) -> bool:
     return bool(typ) or bool(status) or bool(von) or bool(bis)
 
-def _can_search(q, typ, status, von, bis) -> bool:
+def _can_search(q, q_sem, use_sem, typ, status, von, bis) -> bool:
     q = (q or "").strip()
+    q_sem = (q_sem or "").strip()
     if len(q) >= MIN_LEN:
+        return True
+    if use_sem and len(q_sem) >= MIN_LEN:
         return True
     if _has_any_filter(typ, status, von, bis):
         return True
     return False
+
 
 
 # =============================
@@ -122,7 +125,9 @@ def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[
 
 def clear_filters_keep_results():
     gr.Info("🧹 Filter zurückgesetzt.")
-    return "", [], [], None, None, "datum:desc", 1, gr.update()
+    # q, typ, status, von, bis, q_sem, use_sem, sort, page, results
+    return "", [], [], None, None, "", False, "datum:desc", 1, gr.update()
+
 
 def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
                    datum_von: str | None = None, datum_bis: str | None = None,
@@ -186,13 +191,12 @@ def _pdf_link(url: str | None) -> str:
     host = urlparse(u).netloc or "PDF"
     return f"\n[🔗 Original-PDF ({host})]({u})"
 
-def do_search(q, typ, status, von, bis, page, sort):
+def do_search(q, typ, status, von, bis, page, sort, q_sem, use_sem):
     # ---- Guard: nur suchen, wenn sinnvoll ----
-    if not _can_search(q, typ, status, von, bis):
+    if not _can_search(q, q_sem, use_sem, typ, status, von, bis):
         gr.Warning("Bitte Suchbegriff eingeben ODER mindestens einen Filter setzen (z. B. Typ).")
         # Nichts ändern: alle Outputs unverändert lassen
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-
 
     page = max(1, int(page or 1))
     limit = STATE["limit"]
@@ -243,11 +247,13 @@ def do_search(q, typ, status, von, bis, page, sort):
     return out_md, gr.update(interactive=has_prev), gr.update(interactive=has_next), page, f"{start}–{end} / {total}"
 
 
-def next_page(q, typ, status, von, bis, page, sort):
-    return do_search(q, typ, status, von, bis, (int(page or 1) + 1), sort)
 
-def prev_page(q, typ, status, von, bis, page, sort):
-    return do_search(q, typ, status, von, bis, (max(1, int(page or 1) - 1)), sort)
+def next_page(q, typ, status, von, bis, page, sort, q_sem, use_sem):
+    return do_search(q, typ, status, von, bis, (int(page or 1) + 1), sort, q_sem, use_sem)
+
+def prev_page(q, typ, status, von, bis, page, sort, q_sem, use_sem):
+    return do_search(q, typ, status, von, bis, (max(1, int(page or 1) - 1)), sort, q_sem, use_sem)
+
 
 
 def show_detail(typ, id_):
@@ -338,6 +344,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
                 q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext (einfach)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
                 status = gr.CheckboxGroup(choices=["eingereicht","überwiesen","beantwortet","abgelehnt"], label="Status-noch Dummy!", scale=2)
+            with gr.Row():
+                q_sem = gr.Textbox(label="Semantik (KI)", placeholder="natürliche Frage …")
+                use_sem = gr.Checkbox(label="Semantische Suche (KI) aktivieren", value=False)
             #with gr.Row():
             with gr.Row(elem_classes="filters"):
                 with gr.Column(scale=1, min_width=160):
@@ -361,7 +370,6 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
                 pager_info = gr.Markdown("1–0 / 0")
                 btn_export = gr.Button("🖨️ Export PDF")
                 btn_clear = gr.Button("🧹 Filter zurücksetzen", variant="secondary")
-                btn_sem   = gr.Button("🧠 Semantisch", variant="secondary")  # NEU
 
             results = gr.Markdown(elem_id="results")
 
@@ -369,12 +377,12 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             btn_clear.click(
                 fn=clear_filters_keep_results,
                 inputs=[],
-                outputs=[q, typ, status, von, bis, sort, page, results]
+                outputs=[q, typ, status, von, bis, q_sem, use_sem, sort, page, results]
             )
 
-            btn_search.click(do_search, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_next.click(next_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_prev.click(prev_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_search.click(do_search, [q, typ, status, von, bis, page, sort, q_sem, use_sem], [results, btn_prev, btn_next, page, pager_info])
+            btn_next.click(next_page, [q, typ, status, von, bis, page, sort, q_sem, use_sem], [results, btn_prev, btn_next, page, pager_info])
+            btn_prev.click(prev_page, [q, typ, status, von, bis, page, sort, q_sem, use_sem], [results, btn_prev, btn_next, page, pager_info])
             btn_export.click(lambda: export_pdf_placeholder(), [], [results])
   
         #with gr.TabItem("Detail"):
