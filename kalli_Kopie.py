@@ -1,5 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
+#   v1.2 (semantische Suche)
 #   v1.1 (Date-Picker via CSS)
 #   v1.0 (Unified Search & Filters, PDF Download)
 #
@@ -20,18 +21,30 @@ import os
 from datetime import datetime
 import gradio as gr
 from supabase import create_client, Client
+# --- oben bei den Imports: genau einmal laden ---
 from dotenv import load_dotenv
+load_dotenv()
+
 from urllib.parse import urlparse # DPF-Download der Drucksachen
+# ---- OpenAI Setup (robust) ----
+from openai import OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # kein KeyError bei leerer .env
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 
 APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
-__APP_VERSION__ = "Version 1.0"
+__APP_VERSION__ = "Version 1.2"
 LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
+PAGE_SIZE = 10
+page_state = gr.State(1)
+
+
 
 # 🔐 WICHTIG: Im Frontend NIEMALS den Service-Role-Key verwenden!
 # Nutze den ANON-Key. Schreibvorgänge (z.B. Logs) erfordern passende RLS-Policies.
 
 # ----- Supabase Setup -----
-load_dotenv()
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -89,9 +102,17 @@ def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[
     return query
 
 
+
 def clear_filters_keep_results():
     gr.Info("🧹 Filter zurückgesetzt.")
-    return "", [], [], None, None, "datum:desc", 1, gr.update()  # results bleibt wie es ist
+    # q, q_sem, use_sem, typ, status, von, bis, sort, page_state, results
+    return "", "", False, [], [], None, None, "datum:desc", 1, gr.update()
+
+#def clear_filters_keep_results():
+#    gr.Info("🧹 Filter zurückgesetzt.")
+#    # q, typ, status, von, bis, q_sem, use_sem, sort, page, results
+#    return "", [], [], None, None, "", False, "datum:desc", 1, gr.update()
+
 
 
 def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
@@ -156,67 +177,60 @@ def _pdf_link(url: str | None) -> str:
     host = urlparse(u).netloc or "PDF"
     return f"\n[🔗 Original-PDF ({host})]({u})"
 
+#def do_search(q, q_sem, use_sem, typ, status, von, bis, page, sort):
+def do_search(q, typ, status, von, bis, page, sort, q_sem, use_sem):
+    # ---- Guard: nur suchen, wenn sinnvoll ----
+    if not _can_search(q, q_sem, use_sem, typ, status, von, bis):
+        gr.Warning("Bitte Suchbegriff eingeben ODER mindestens einen Filter setzen (z. B. Typ).")
+        # Nichts ändern: alle Outputs unverändert lassen
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-def do_search(q, typ, status, von, bis, page, sort):
     page = max(1, int(page or 1))
-    limit = STATE["limit"]
-    offset = (page - 1) * limit
+    if use_sem:
+        query_text = (q_sem or q or "").strip()
+        if not query_text:
+            gr.Warning("Bitte Text für die semantische Suche eingeben.")
+            return "—", gr.update(interactive=False), gr.update(interactive=False), page, "0–0 / 0"
+        try:
+            items, total = search_semantic_handler(query_text, typ, von, bis, page)
+        except Exception as e:
+            gr.Error(f"Semantik-Fehler: {e}")
+            return "—", gr.update(interactive=False), gr.update(interactive=False), page, "0–0 / 0"
+    else:
+        offset = (page - 1) * PAGE_SIZE
+        items  = list_vorgaenge(
+            q=q or "", typ=typ or None, status=status or None,
+            datum_von=von or None, datum_bis=bis or None,
+            limit=PAGE_SIZE, offset=offset, sort=sort or "datum:desc"
+        )
+        total  = count_vorgaenge(
+            q=q or "", typ=typ or None, status=status or None,
+            datum_von=von or None, datum_bis=bis or None
+        ) or 0
 
-    items = list_vorgaenge(
-        q=q or "",
-        typ=typ or None,
-        status=status or None,
-        datum_von=von or None,
-        datum_bis=bis or None,
-        limit=limit,
-        offset=offset,
-        sort=sort or "datum:desc",
-    )
-    total = count_vorgaenge(
-        q=q or "",
-        typ=typ or None,
-        status=status or None,
-        datum_von=von or None,
-        datum_bis=bis or None,
-    )
+    # ----- Pager + Info -----
+    page_count = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = min(page, page_count)
+    start_i = 0 if total == 0 else ((page - 1) * PAGE_SIZE + 1)
+    end_i   = min(page * PAGE_SIZE, total)
+    info    = f"{start_i}–{end_i} / {total} • Seite {page}/{page_count}"
+    prev_dis = (page <= 1)
+    next_dis = (page >= page_count)
 
-    start = 0 if total == 0 else offset + 1
-    end = min(offset + limit, total)
-
+    # ----- Render -----
     body = []
-    for row in items:
-
-
-        preview = (row.get("beschreibung") or "")[:220]
-        pdf_md = _pdf_link(row.get("pdf_url"))
+    for row in (items or []):
+        preview = (row.get("beschreibung") or row.get("inhalt") or row.get("text") or "")[:220]
+        pdf_md  = _pdf_link(row.get("pdf_url"))
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
             f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
             f"{preview}…  \n"
             f"ID: `{row.get('id','?')}`{pdf_md}"
         )
+    md = "\n\n".join(body) if body else "— Keine Treffer —"
 
-
-
-    header = f"**{start}–{end} von {total} Einträgen**\n\n"
-    out_md = header + ("\n\n---\n\n".join(body) if body else "_Keine Treffer._")
-
-    # Toggle Pager-Buttons
-    has_prev = page > 1
-    has_next = end < total
-
-    log_action("list", {"q": q, "typ": typ, "status": status, "von": von, "bis": bis, "page": page, "sort": sort})
-
-    return out_md, gr.update(interactive=has_prev), gr.update(interactive=has_next), page, f"{start}–{end} / {total}"
-
-
-def next_page(q, typ, status, von, bis, page, sort):
-    return do_search(q, typ, status, von, bis, (int(page or 1) + 1), sort)
-
-
-def prev_page(q, typ, status, von, bis, page, sort):
-    return do_search(q, typ, status, von, bis, (max(1, int(page or 1) - 1)), sort)
-
+    return md, gr.update(interactive=not prev_dis), gr.update(interactive=not next_dis), page, info
 
 def show_detail(typ, id_):
     d = get_vorgang_detail(typ, id_)
@@ -254,6 +268,24 @@ def tipp_des_tages():
 def export_pdf_placeholder():
     # Platzhalter – hier später HTML->PDF (weasyprint/wkhtmltopdf) einbauen
     return "🖨️ PDF-Export kommt als nächster Schritt (HTML-Render + PDF)."
+
+
+# die Wrapper-Funktionen sind kleine Hilfsfunktionen, die nur dazu da sind, die richtigen Argumente an do_search(...) weiterzureichen.
+
+def run_search(q, q_sem, use_sem, typ, status, von, bis, sort):
+    # Neuer Suchlauf startet immer auf Seite 1
+    return do_search(q, q_sem, use_sem, typ, status, von, bis, 1, sort)
+
+def go_prev(q, q_sem, use_sem, typ, status, von, bis, page_state_val, sort):
+    return do_search(q, q_sem, use_sem, typ, status, von, bis, max(1, int(page_state_val or 1) - 1), sort)
+
+def go_next(q, q_sem, use_sem, typ, status, von, bis, page_state_val, sort):
+    return do_search(q, q_sem, use_sem, typ, status, von, bis, int(page_state_val or 1) + 1, sort)
+
+
+
+
+
 
 # =============================
 # BLOCK 5 — Gradio UI
@@ -315,15 +347,23 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
     with gr.Tabs():
         with gr.TabItem("Suche"):
             with gr.Row():
-                q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext (einfach)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
                 status = gr.CheckboxGroup(choices=["eingereicht","überwiesen","beantwortet","abgelehnt"], label="Status-noch Dummy!", scale=2)
-            #with gr.Row():
+
+            with gr.Row():
+                with gr.Column(scale=1, min_width=160):
+                    q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext (einfach)", scale=3)
+                with gr.Column(scale=1, min_width=160):
+                    q_sem = gr.Textbox(label="Semantik (KI)", placeholder="natürliche Frage …")
+                    use_sem = gr.Checkbox(label="Semantische Suche (KI) aktivieren", value=False)
+
             with gr.Row(elem_classes="filters"):
                 with gr.Column(scale=1, min_width=160):
                     sort = gr.Dropdown(choices=["datum:desc","datum:asc"], value="datum:desc", label="Sortierung")
                 with gr.Column(scale=1, min_width=120):
                     page = gr.Number(value=1, label="Seite", precision=0)
+
+
 
             # --- nur die Datumsfelder ---
             with gr.Row(elem_classes="row-dates"):
@@ -332,8 +372,6 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
                 with gr.Column(min_width=260):
                     bis = gr.DateTime(label="Bis", include_time=False, type="string", elem_id="dp_bis")
 
-
-
             with gr.Row():
                 btn_search = gr.Button("🔎 Suchen", variant="primary")
                 btn_prev = gr.Button("◀️ Zurück", interactive=False)
@@ -341,41 +379,54 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
                 pager_info = gr.Markdown("1–0 / 0")
                 btn_export = gr.Button("🖨️ Export PDF")
                 btn_clear = gr.Button("🧹 Filter zurücksetzen", variant="secondary")
-
+                
             results = gr.Markdown(elem_id="results")
-
-            btn_search.click(do_search, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_next.click(next_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_prev.click(prev_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_export.click(lambda: export_pdf_placeholder(), [], [results])
             btn_clear.click(
                 fn=clear_filters_keep_results,
                 inputs=[],
-                outputs=[q, typ, status, von, bis, sort, page, results]
+                outputs=[q, typ, status, von, bis, q_sem, use_sem, sort, page, results]
             )
-
-
-            """
+                
+            # Suchen
+            btn_search.click(
+                fn=run_search,
+                inputs=[q, q_sem, use_sem, typ, status, von, bis, sort],   # 8 Inputs
+                outputs=[results, btn_prev, btn_next, page_state, pager_info],  # 5 Outputs
+            )
+            # Zurück
+            btn_prev.click(
+                fn=go_prev,
+                inputs=[q, q_sem, use_sem, typ, status, von, bis, page_state, sort],  # 9 Inputs
+                outputs=[results, btn_prev, btn_next, page_state, pager_info],        # 5 Outputs
+            )
+            # Weiter
+            btn_next.click(
+                fn=go_next,
+                inputs=[q, q_sem, use_sem, typ, status, von, bis, page_state, sort],  # 9 Inputs
+                outputs=[results, btn_prev, btn_next, page_state, pager_info],        # 5 Outputs
+            )
+            btn_export.click(lambda: export_pdf_placeholder(), [], [results])
+   
             btn_clear.click(
-                fn=lambda: list(clear_filters().values()),
+                fn=clear_filters_keep_results,
                 inputs=[],
-                outputs=[q, typ, status, von, bis, sort, page, results]
-            )
-            """
-            
+                outputs=[q, typ, status, von, bis, sort, page_state, results],  # page_state (nicht page!)
+            ) 
+                        
         with gr.TabItem("Detail"):
             with gr.Row():
                 in_typ = gr.Dropdown(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ")
                 in_id = gr.Textbox(label="ID")
                 btn_detail = gr.Button("➡️ Laden")
             detail = gr.Markdown()
-            btn_detail.click()
+            #btn_detail.click(fn=show_detail, inputs=[in_typ, in_id], outputs=[detail])
+
 
 if __name__ == "__main__":
     # Für Deployment (Render, Docker etc.):
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    #demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
     # Für lokalen Test:
-    #demo.launch()
+    demo.launch()
 
 
