@@ -1,6 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
-#   v1.3 (kombiniertes Suchfeld, semantische Suche)
+#   v1.3 (kombiniertes Suchfeld)
 #   v1.2 (IDLE für Suche, leer nicht erlaubt)
 #   v1.1 (Date-Picker via CSS)
 #   v1.0 (Unified Search & Filters, PDF Download)
@@ -26,8 +26,12 @@ import gradio as gr
 from dotenv import load_dotenv
 load_dotenv()
 
+
 from supabase import create_client, Client
 from urllib.parse import urlparse # DPF-Download der Drucksachen
+
+
+# optional: nur wenn du OpenAI jetzt schon nutzt
 from openai import OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
@@ -41,6 +45,7 @@ MIN_LEN = 2         # mind. Länge Suchstring
 
 # 🔐 WICHTIG: Im Frontend NIEMALS den Service-Role-Key verwenden!
 # Nutze den ANON-Key. Schreibvorgänge (z.B. Logs) erfordern passende RLS-Policies.
+
 # ----- Supabase Setup -----
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -96,7 +101,6 @@ def _embed_query(text: str) -> list[float]:
     )
     return resp.data[0].embedding  #Liste von 1536 Gleitkommazahlen (float)
 
-
 def do_search_sem_db(q, typ, status, von, bis, page, sort):
     """
     Semantische Suche auf bvv_dokumente.
@@ -105,7 +109,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
       typ: Liste Typen (oder [])
       status: aktuell ungenutzt für semantische Suche
       von/bis: Datumsfilter
-      page: Pager (hier ignoriert, weil semantisch immer Top-N)
+      page: Pager (hier ignoriert, weil semantisch Top-N)
       sort: Sortierung (wird von similarity übersteuert)
     """
 
@@ -119,45 +123,40 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
     except Exception as e:
         gr.Warning(f"Embedding fehlgeschlagen: {e}")
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-    
-    limit = max(STATE["limit"], 20)
-    typ_arg = typ or None
-    von_arg = von or None
-    bis_arg = bis or None
 
-    try:
-        rpc = sb.rpc("match_bvv_dokumente", {
-            "query_embedding": q_vec,
-            "match_count": limit,
-            "match_threshold": 0.4,   # zum Test locker
-            "typ_filter": typ_arg,
-            "von": von_arg,
-            "bis": bis_arg,
-            "published_only": False   # erstmal AUS, bis Datenlage sauber
-        }).execute()
-        hits = rpc.data or []
-        gr.Info(f"RPC: {len(hits)} Treffer (semantisch)")
-    except Exception as e:
-        gr.Warning(f"Vektor-Suche fehlgeschlagen: {e}")
-        hits = []
+  
+    # ---- Nur valide Treffer übernehmen: similarity > 0
+    ids = [h["id"] for h in hits if h.get("similarity", 0) > 0]
+    sim = {h["id"]: h.get("similarity", 0.0) for h in hits if h.get("similarity", 0) > 0}
 
-    # IDs + Similarity-Map
-    ids = [h["id"] for h in hits]
-    sim = {h["id"]: h.get("similarity", 0.0) for h in hits}
+    if not ids:
+        return "_Keine semantischen Treffer._", gr.update(interactive=False), gr.update(interactive=False), 1, "0–0 / 0"
 
-    # Vollständige Datensätze holen
-    rows = sb.table("bvv_dokumente").select("*").in_("id", ids).execute().data or []
-    rows.sort(key=lambda r: sim.get(r["id"], 0), reverse=True)
+    # Vollständige Datensätze holen – nur mit Embedding (NULL ausschließen)
+    rows = (sb.table("bvv_dokumente")
+            .select("*")
+            .in_("id", ids)
+            .neq("embedding", None)
+            .execute().data or [])
 
-    # Render wie in klassischer Suche
+
+    # (Optional) Info, falls etwas weggefiltert wurde (z. B. fehlendes Embedding)
+    skipped = len(ids) - len(rows)
+    if skipped > 0:
+        gr.Info(f"ℹ️ {skipped} Dokument(e) ohne Embedding oder invalide Treffer übersprungen.")
+
+    # Reihenfolge nach Similarity sortieren
+    rows.sort(key=lambda r: sim.get(r.get("id"), 0.0), reverse=True)
+
+    # Render wie in klassischer Suche – View-Felder nutzen (kein 'beschreibung', 'status', 'fraktion')
     body = []
     for row in rows:
-        preview = (row.get("beschreibung") or "")[:220]
+        preview = (row.get("inhalt") or row.get("frage") or "")[:220]
         pdf_md = _pdf_link(row.get("pdf_url"))
         s = sim.get(row.get("id"), 0.0)
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"— {row.get('typ','?')} · {row.get('datum','?')} · {row.get('kategorie','')}  \n"
             f"{preview}…  \n"
             f"Ähnlichkeit: {s:.2f}  \n"
             f"ID: `{row.get('id','?')}`{pdf_md}"
@@ -169,6 +168,10 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
 
     # Pager bleibt aus – wir holen nur Top-N
     return out_md, gr.update(interactive=False), gr.update(interactive=False), 1, f"{start}–{end} / {total}"
+
+
+
+
 
 
 # =============================
@@ -417,7 +420,7 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
     with gr.Tabs():
         with gr.TabItem("Suche"):
             with gr.Row():
-                q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext -einfach/semantisch)", scale=3)
+                q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext (einfach)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
                 status = gr.CheckboxGroup(choices=["eingereicht","überwiesen","beantwortet","abgelehnt"], label="Status-noch Dummy!", scale=2)
             #with gr.Row():
@@ -437,15 +440,15 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
 
 
             with gr.Row():
-                btn_search = gr.Button("🔎 Suche-klassisch", variant="primary")
+                btn_search = gr.Button("🔎 Suchen", variant="primary")
                 btn_prev = gr.Button("◀️ Zurück", interactive=False)
                 btn_next = gr.Button("Weiter ▶️", interactive=False)
                 pager_info = gr.Markdown("1–0 / 0")
-                btn_sem   = gr.Button("🧠 Suche-semantisch", variant="primary") 
                 btn_export = gr.Button("🖨️ Export PDF")
                 btn_clear = gr.Button("🧹 Filter zurücksetzen", variant="secondary")
-     
-      
+                btn_sem   = gr.Button("🧠 Semantisch", variant="secondary")  # NEU
+                btn_embed_test = gr.Button("🔬 Embed testen", variant="secondary")
+
 
             results = gr.Markdown(elem_id="results")
 
@@ -466,6 +469,15 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
                 outputs=[results, btn_prev, btn_next, page, pager_info]
             )
 
+            
+            
+            #btn_embed_test.click(
+            #    fn=test_embed,
+            #    inputs=[q],
+            #    outputs=[results]
+            #)
+
+
 
         #with gr.TabItem("Detail"):
         #    with gr.Row():
@@ -477,9 +489,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
 
 if __name__ == "__main__":
     # Für Deployment (Render, Docker etc.):
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    #demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
     # Für lokalen Test:
-    #demo.launch()
+    demo.launch()
 
 
