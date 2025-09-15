@@ -1,5 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
+#   v1.4 (bereinigter View)
 #   v1.3 (kombiniertes Suchfeld, semantische Suche)
 #   v1.2 (IDLE für Suche, leer nicht erlaubt)
 #   v1.1 (Date-Picker via CSS)
@@ -29,12 +30,12 @@ load_dotenv()
 from supabase import create_client, Client
 from urllib.parse import urlparse # DPF-Download der Drucksachen
 from openai import OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # kein KeyError bei leerer .env
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
-__APP_VERSION__ = "Version 1.3"
+__APP_VERSION__ = "Version 1.4"
 LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
 PAGE_SIZE = 10
 MIN_LEN = 2         # mind. Länge Suchstring
@@ -45,7 +46,7 @@ MIN_LEN = 2         # mind. Länge Suchstring
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # kein KeyError bei leerer .env
+
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =============================
@@ -129,7 +130,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         rpc = sb.rpc("match_bvv_dokumente", {
             "query_embedding": q_vec,
             "match_count": limit,
-            "match_threshold": 0.4,   # zum Test locker
+            "match_threshold": 0.3, 
             "typ_filter": typ_arg,
             "von": von_arg,
             "bis": bis_arg,
@@ -152,7 +153,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
     # Render wie in klassischer Suche
     body = []
     for row in rows:
-        preview = (row.get("beschreibung") or "")[:220]
+        preview = (row.get("inhalt") or "")[:220]
         pdf_md = _pdf_link(row.get("pdf_url"))
         s = sim.get(row.get("id"), 0.0)
         body.append(

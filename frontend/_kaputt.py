@@ -1,6 +1,5 @@
 # ============================================================
 #  BVV-Frontend 
-#   v1.4 (bereinigter View)
 #   v1.3 (kombiniertes Suchfeld, semantische Suche)
 #   v1.2 (IDLE für Suche, leer nicht erlaubt)
 #   v1.1 (Date-Picker via CSS)
@@ -30,12 +29,12 @@ load_dotenv()
 from supabase import create_client, Client
 from urllib.parse import urlparse # DPF-Download der Drucksachen
 from openai import OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # kein KeyError bei leerer .env
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
-__APP_VERSION__ = "Version 1.4"
+__APP_VERSION__ = "Version 1.3"
 LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
 PAGE_SIZE = 10
 MIN_LEN = 2         # mind. Länge Suchstring
@@ -46,7 +45,7 @@ MIN_LEN = 2         # mind. Länge Suchstring
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE")
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # kein KeyError bei leerer .env
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =============================
@@ -130,7 +129,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         rpc = sb.rpc("match_bvv_dokumente", {
             "query_embedding": q_vec,
             "match_count": limit,
-            "match_threshold": 0.3, 
+            "match_threshold": 0.4,   # zum Test locker
             "typ_filter": typ_arg,
             "von": von_arg,
             "bis": bis_arg,
@@ -143,17 +142,25 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         hits = []
 
     # IDs + Similarity-Map
-    ids = [h["id"] for h in hits]
-    sim = {h["id"]: h.get("similarity", 0.0) for h in hits}
-
+   #ids = [h["id"] for h in hits]
+    #sim = {h["id"]: h.get("similarity", 0.0) for h in hits}
     # Vollständige Datensätze holen
-    rows = sb.table("bvv_dokumente").select("*").in_("id", ids).execute().data or []
-    rows.sort(key=lambda r: sim.get(r["id"], 0), reverse=True)
+    #rows = sb.table("bvv_dokumente").select("*").in_("id", ids).execute().data or []
+    #rows.sort(key=lambda r: sim.get(r["id"], 0), reverse=True)
+
+    ids = [h["id"] for h in hits if h.get("similarity", 0) > 0]
+    rows = (sb.table("bvv_dokumente")
+            .select("*")
+            .in_("id", ids)
+            .neq("embedding", None)
+            .execute().data or [])
+    rows.sort(key=lambda r: sim.get(r.get("id"), 0.0), reverse=True)
+
 
     # Render wie in klassischer Suche
     body = []
     for row in rows:
-        preview = (row.get("inhalt") or "")[:220]
+        preview = (row.get("beschreibung") or "")[:220]
         pdf_md = _pdf_link(row.get("pdf_url"))
         s = sim.get(row.get("id"), 0.0)
         body.append(
@@ -478,9 +485,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
 
 if __name__ == "__main__":
     # Für Deployment (Render, Docker etc.):
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    #demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
     # Für lokalen Test:
-    #demo.launch()
+    demo.launch()
 
 
