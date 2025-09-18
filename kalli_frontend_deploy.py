@@ -1,5 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
+#   v1.5 (bereinigte SQL-Views)
 #   v1.4 (bereinigter View)
 #   v1.3 (kombiniertes Suchfeld, semantische Suche)
 #   v1.2 (IDLE für Suche, leer nicht erlaubt)
@@ -13,7 +14,7 @@
 #  – Beibehaltener Disclaimer + Logo-Platzhalter
 #
 #  Autoren: KI + Kalli
-#  Stand: 2025-09-13
+#  Stand: 2025-09-18
 # ============================================================
 # =============================
 # BLOCK 1 — Imports & Setup
@@ -35,7 +36,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
-__APP_VERSION__ = "Version 1.4"
+__APP_VERSION__ = "Version 1.5"
 LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
 PAGE_SIZE = 10
 MIN_LEN = 2         # mind. Länge Suchstring
@@ -193,10 +194,8 @@ def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[
         query = query.or_(
             ",".join([
                 f"titel.ilike.{like}",
-                f"beschreibung.ilike.{like}",
-                f"schlagworte.ilike.{like}",
-                f"drucksache_nr.ilike.{like}",
-                f"ressort.ilike.{like}",
+                f"inhalt.ilike.{like}",
+                f"drucksache.ilike.{like}",
                 f"fraktion.ilike.{like}",
             ])
         )
@@ -210,7 +209,7 @@ def clear_filters_keep_results():
 def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
                    datum_von: str | None = None, datum_bis: str | None = None,
                    limit: int = 20, offset: int = 0, sort: str = "datum:desc"):
-    base = "vorgang_view"  # robust ohne Volltext
+    base = "bvv_dokumente"  # Supabase View
     col, direction = (sort.split(":") + ["asc"])[:2]
 
     query = sb.table(base).select("*")
@@ -223,7 +222,7 @@ def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[st
 
 def count_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
                     datum_von: str | None = None, datum_bis: str | None = None) -> int:
-    base = "vorgang_view"
+    base = "bvv_dokumente"
     query = sb.table(base).select("id", count="exact")
     query = _apply_filters(query, q=q, typ=typ, status=status, von=datum_von, bis=datum_bis)
     res = query.execute()
@@ -305,7 +304,7 @@ def do_search(q, typ, status, von, bis, page, sort):
     for row in items:
 
 
-        preview = (row.get("beschreibung") or "")[:220]
+        preview = (row.get("inhalt") or "")[:220]
         pdf_md = _pdf_link(row.get("pdf_url"))
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
@@ -350,9 +349,8 @@ def show_detail(typ, id_):
     f"**Status:** {d.get('status','')}  \n"
     f"**Fraktion:** {d.get('fraktion','')}  \n"
     f"**Datum:** {d.get('datum','')}\n\n"
-    f"**Text:**\n{d.get('beschreibung') or d.get('text') or ''}\n\n"
-    f"**Drucksache:** {d.get('drucksache_nr','-')}  \n"
-    f"**Ressort:** {d.get('ressort','-')}"
+    f"**Inhalt:**\n{d.get('inhalt') or ''}\n\n"
+    f"**Drucksache:** {d.get('drucksache','-')}  \n"
     f"{pdf_line}\n"
     )
 
@@ -418,9 +416,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
     with gr.Tabs():
         with gr.TabItem("Suche"):
             with gr.Row():
-                q = gr.Textbox(placeholder="Suche (Titel, Text, Schlagworte)…", label="Volltext -einfach/semantisch)", scale=3)
+                q = gr.Textbox(placeholder="Suche (Titel, Text)…", label="Volltext -einfach/semantisch)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
-                status = gr.CheckboxGroup(choices=["eingereicht","überwiesen","beantwortet","abgelehnt"], label="Status-noch Dummy!", scale=2)
+                status = gr.CheckboxGroup(choices=["eingereicht von","Fraktion","Status"], label="noch Dummy!", scale=2)
             #with gr.Row():
             with gr.Row(elem_classes="filters"):
                 with gr.Column(scale=1, min_width=160):
