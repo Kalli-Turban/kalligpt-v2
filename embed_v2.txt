@@ -1,0 +1,1 @@
+python .\embed_v2.py .\sample.json

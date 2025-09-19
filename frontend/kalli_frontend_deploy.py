@@ -163,6 +163,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
             f"{preview}…  \n"
             f"Ähnlichkeit: {s:.2f}  \n"
             #f"ID: `{row.get('id','?')}`{pdf_md}"
+            f"ID: zum Dokument: {pdf_md}"
         )
 
     total = len(rows)
