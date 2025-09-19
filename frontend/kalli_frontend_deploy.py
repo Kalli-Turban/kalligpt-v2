@@ -131,7 +131,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         rpc = sb.rpc("match_bvv_dokumente", {
             "query_embedding": q_vec,
             "match_count": limit,
-            "match_threshold": 0.3, 
+            "match_threshold": 0.4, 
             "typ_filter": typ_arg,
             "von": von_arg,
             "bis": bis_arg,
@@ -159,7 +159,7 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         s = sim.get(row.get("id"), 0.0)
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} Einreicher: {row.get('einreicher','')}   \n"
             f"{preview}…  \n"
             f"Ähnlichkeit: {s:.2f}  \n"
             f"ID: `{row.get('id','?')}`{pdf_md}"
@@ -303,14 +303,15 @@ def do_search(q, typ, status, von, bis, page, sort):
     body = []
     for row in items:
 
-
+# Ausgabe Liste
         preview = (row.get("inhalt") or "")[:220]
         pdf_md = _pdf_link(row.get("pdf_url"))
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"Dok-Typ -> {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('einreicher','')} -> {row.get('fraktion','')}  \n"
             f"{preview}…  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
+            f"Link-Drucksache: {pdf_md}"
         )
 
 
@@ -466,19 +467,11 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             )
 
 
-        #with gr.TabItem("Detail"):
-        #    with gr.Row():
-        #        in_typ = gr.Dropdown(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ")
-        #        in_id = gr.Textbox(label="ID")
-                #btn_detail = gr.Button("➡️ Laden")
-            #detail = gr.Markdown()
-            #btn_detail.click()
-
 if __name__ == "__main__":
     # Für Deployment (Render, Docker etc.):
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    #demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
     # Für lokalen Test:
-    #demo.launch()
+    demo.launch()
 
 
