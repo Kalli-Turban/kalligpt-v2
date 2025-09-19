@@ -159,10 +159,10 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         s = sim.get(row.get("id"), 0.0)
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} Einreicher: {row.get('einreicher','')}   \n"
+            f"Doc-Typ-> {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} Einreicher: {row.get('einreicher','')}   \n"
             f"{preview}…  \n"
             f"Ähnlichkeit: {s:.2f}  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
         )
 
     total = len(rows)
@@ -349,6 +349,7 @@ def show_detail(typ, id_):
     f"**Typ:** {typ}  \n"
     f"**Status:** {d.get('status','')}  \n"
     f"**Fraktion:** {d.get('fraktion','')}  \n"
+    f"**Einreicher:** {d.get('einreicher','')}  \n"
     f"**Datum:** {d.get('datum','')}\n\n"
     f"**Inhalt:**\n{d.get('inhalt') or ''}\n\n"
     f"**Drucksache:** {d.get('drucksache','-')}  \n"
@@ -469,9 +470,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
 
 if __name__ == "__main__":
     # Für Deployment (Render, Docker etc.):
-    #demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
     # Für lokalen Test:
-    demo.launch()
+    #demo.launch()
 
 
