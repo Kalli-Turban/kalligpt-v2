@@ -1,5 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
+#   v1.6 (weitere Filter)
 #   v1.5 (bereinigte SQL-Views)
 #   v1.4 (bereinigter View)
 #   v1.3 (kombiniertes Suchfeld, semantische Suche)
@@ -36,7 +37,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 APP_TITLE = "BVV – Vorgänge (Suche & Übersicht)"
-__APP_VERSION__ = "Version 1.5"
+__APP_VERSION__ = "Version 1.6"
 LOGO_PATH = os.environ.get("KALLI_LOGO_PATH", "assets/logo_160_80.png")
 PAGE_SIZE = 10
 MIN_LEN = 2         # mind. Länge Suchstring
@@ -72,6 +73,17 @@ CUSTOM_CSS = """
 # =============================
 # Helper Funktionen
 # =============================
+
+def _as_list_or_none(x):
+    """Normiert Dropdown-/Checkbox-Werte für .in_() in Supabase .in_()."""
+    if x is None or x == "":
+        return None
+    if isinstance(x, list):
+        return x if x else None
+    return [x]
+
+
+
 
 # Filter gesetzt? Suchstring lang genug?
 def _has_any_filter(typ, status, von, bis) -> bool:
@@ -204,7 +216,8 @@ def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[
 
 def clear_filters_keep_results():
     gr.Info("🧹 Filter zurückgesetzt.")
-    return "", [], [], None, None, "datum:desc", 1, gr.update()
+    #return "", [], [], [], None, None, "datum:desc", 1, gr.update()
+    return "", [], None, None, None, "datum:desc", 1, gr.update()
 
 def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
                    datum_von: str | None = None, datum_bis: str | None = None,
@@ -213,18 +226,18 @@ def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[st
     col, direction = (sort.split(":") + ["asc"])[:2]
 
     query = sb.table(base).select("*")
-    query = _apply_filters(query, q=q, typ=typ, status=status, von=datum_von, bis=datum_bis)
+    query = _apply_filters(query, q=q, typ=typ, status=_as_list_or_none(status), von=datum_von, bis=datum_bis)
     query = query.order(col, desc=(direction.lower() == "desc"))
     query = query.range(offset, offset + limit - 1)
     res = query.execute()
     return res.data or []
 
 
-def count_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
+def gaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
                     datum_von: str | None = None, datum_bis: str | None = None) -> int:
     base = "bvv_dokumente"
     query = sb.table(base).select("id", count="exact")
-    query = _apply_filters(query, q=q, typ=typ, status=status, von=datum_von, bis=datum_bis)
+    query = _apply_filters(query, q=q, typ=typ,  status=_as_list_or_none(status), von=datum_von, bis=datum_bis)
     res = query.execute()
     return int(res.count or 0)
 
@@ -289,7 +302,7 @@ def do_search(q, typ, status, von, bis, page, sort):
         offset=offset,
         sort=sort or "datum:desc",
     )
-    total = count_vorgaenge(
+    total = gaenge(
         q=q or "",
         typ=typ or None,
         status=status or None,
@@ -303,7 +316,6 @@ def do_search(q, typ, status, von, bis, page, sort):
     body = []
     for row in items:
 
-
         preview = (row.get("inhalt") or "")[:220]
         pdf_md = _pdf_link(row.get("pdf_url"))
         body.append(
@@ -312,7 +324,6 @@ def do_search(q, typ, status, von, bis, page, sort):
             f"{preview}…  \n"
             f"ID: `{row.get('id','?')}`{pdf_md}"
         )
-
 
     header = f"**{start}–{end} von {total} Einträgen**\n\n"
     out_md = header + ("\n\n---\n\n".join(body) if body else "_Keine Treffer._")
@@ -418,8 +429,12 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             with gr.Row():
                 q = gr.Textbox(placeholder="Suche (Titel, Text)…", label="Volltext -einfach/semantisch)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
-                status = gr.CheckboxGroup(choices=["eingereicht von","Fraktion","Status"], label="noch Dummy!", scale=2)
-            #with gr.Row():
+                #status = gr.CheckboxGroup(choices=["eingereicht von","Fraktion","Status"], label="weitere Filter", scale=2)
+            
+            with gr.Row():
+            #    autor = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
+                 status = gr.Dropdown(label="Status",choices=["eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
+
             with gr.Row(elem_classes="filters"):
                 with gr.Column(scale=1, min_width=160):
                     sort = gr.Dropdown(choices=["datum:desc","datum:asc"], value="datum:desc", label="Sortierung")

@@ -6,6 +6,7 @@ from uuid import uuid4
 from supabase import create_client, Client
 from openai import OpenAI
 from dotenv import load_dotenv
+#python .\embed_from_json_v2.py .\1479-XXI.json
 
 
 # 🌱 .env laden

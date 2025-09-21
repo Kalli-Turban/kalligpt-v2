@@ -5,8 +5,7 @@ __pycache__/
 venv/
 
 # Lokale Hilfsskripte – nicht mit ins Repo!
-embed_einzelantrag.py
-embed_kalli_antraege.py
+
 bvv_embed.py
 
 # Office-Dateien und PDFs
@@ -24,6 +23,7 @@ json/
 log/
 Spielwiese/
 events/
+
 
 # Lokale Embedding-Skripte
 embedding/
