@@ -83,8 +83,6 @@ def _as_list_or_none(x):
     return [x]
 
 
-
-
 # Filter gesetzt? Suchstring lang genug?
 def _has_any_filter(typ, status, von, bis) -> bool:
     return bool(typ) or bool(status) or bool(von) or bool(bis)
@@ -429,10 +427,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             with gr.Row():
                 q = gr.Textbox(placeholder="Suche (Titel, Text)…", label="Volltext -einfach/semantisch)", scale=3)
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
-                #status = gr.CheckboxGroup(choices=["eingereicht von","Fraktion","Status"], label="weitere Filter", scale=2)
             
             with gr.Row():
-            #    autor = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
+                 autor = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
                  status = gr.Dropdown(label="Status",choices=["eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
 
             with gr.Row(elem_classes="filters"):
