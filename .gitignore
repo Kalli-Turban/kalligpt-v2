@@ -23,7 +23,7 @@ json/
 log/
 Spielwiese/
 events/
-
+apps
 
 # Lokale Embedding-Skripte
 embedding/

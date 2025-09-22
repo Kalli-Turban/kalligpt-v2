@@ -1,6 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
-#   v1.6 (weitere Filter)
+#   v1.6 (weitere Filter) - läuft!!!
 #   v1.5 (bereinigte SQL-Views)
 #   v1.4 (bereinigter View)
 #   v1.3 (kombiniertes Suchfeld, semantische Suche)
@@ -231,7 +231,7 @@ def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[st
     return res.data or []
 
 
-def gaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
+def count_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[str] | None = None,
                     datum_von: str | None = None, datum_bis: str | None = None) -> int:
     base = "bvv_dokumente"
     query = sb.table(base).select("id", count="exact")
@@ -300,7 +300,7 @@ def do_search(q, typ, status, von, bis, page, sort):
         offset=offset,
         sort=sort or "datum:desc",
     )
-    total = gaenge(
+    total = count_vorgaenge(
         q=q or "",
         typ=typ or None,
         status=status or None,
@@ -318,9 +318,10 @@ def do_search(q, typ, status, von, bis, page, sort):
         pdf_md = _pdf_link(row.get("pdf_url"))
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"Dok-Typ-> {row.get('typ','?')} Status: {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} -> {row.get('einreicher','')}  \n"
             f"{preview}…  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
+            f"zur Drucksache: {pdf_md}"
         )
 
     header = f"**{start}–{end} von {total} Einträgen**\n\n"

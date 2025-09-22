@@ -1,6 +1,6 @@
 # ============================================================
 #  BVV-Frontend 
-#   v1.6 (weitere Filter) - läuft!!!
+#   v1.6 (weitere Filter)
 #   v1.5 (bereinigte SQL-Views)
 #   v1.4 (bereinigter View)
 #   v1.3 (kombiniertes Suchfeld, semantische Suche)
@@ -194,6 +194,8 @@ def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[
         query = query.in_("typ", typ)
     if status:
         query = query.in_("status", status)
+    if einreicher:
+        query = query.in_("einreicher", einreicher)  # 👈 NEU
     if von:
         query = query.gte("datum", von)
     if bis:
@@ -224,7 +226,7 @@ def list_vorgaenge(*, q: str = "", typ: list[str] | None = None, status: list[st
     col, direction = (sort.split(":") + ["asc"])[:2]
 
     query = sb.table(base).select("*")
-    query = _apply_filters(query, q=q, typ=typ, status=_as_list_or_none(status), von=datum_von, bis=datum_bis)
+    query = _apply_filters(query, q=q, typ=typ, status=_as_list_or_none(status), von=datum_von, bis=datum_bis, einreicher=_as_list_or_none(einreicher))
     query = query.order(col, desc=(direction.lower() == "desc"))
     query = query.range(offset, offset + limit - 1)
     res = query.execute()
@@ -294,16 +296,18 @@ def do_search(q, typ, status, von, bis, page, sort):
         q=q or "",
         typ=typ or None,
         status=status or None,
+        einreicher=einreicher,            # 👈 NEU
         datum_von=von or None,
         datum_bis=bis or None,
         limit=limit,
         offset=offset,
         sort=sort or "datum:desc",
     )
-    total = count_vorgaenge(
+    total =count_vorgaenge(
         q=q or "",
         typ=typ or None,
         status=status or None,
+        einreicher=einreicher,            # 👈 NEU
         datum_von=von or None,
         datum_bis=bis or None,
     )
@@ -429,7 +433,7 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
                 typ = gr.CheckboxGroup(choices=["antrag","anfrage_muendlich","anfrage_klein","anfrage_gross"], label="Typ", scale=2)
             
             with gr.Row():
-                 autor = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
+                 einreicher = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
                  status = gr.Dropdown(label="Status",choices=["eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
 
             with gr.Row(elem_classes="filters"):
@@ -464,12 +468,12 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             btn_clear.click(
                 fn=clear_filters_keep_results,
                 inputs=[],
-                outputs=[q, typ, status, von, bis, sort, page, results]
+                outputs=[q, typ, einreicher, status, von, bis, sort, page, results]
             )
 
-            btn_search.click(do_search, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_next.click(next_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
-            btn_prev.click(prev_page, [q, typ, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_search.click(do_search, [q, typ, einreicher, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_next.click(next_page, [q, typ, einreicher, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
+            btn_prev.click(prev_page, [q, typ, einreicher, status, von, bis, page, sort], [results, btn_prev, btn_next, page, pager_info])
             btn_export.click(lambda: export_pdf_placeholder(), [], [results])
             btn_sem.click(
                 do_search_sem_db,
