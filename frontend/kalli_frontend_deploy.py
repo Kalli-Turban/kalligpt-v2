@@ -169,10 +169,11 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         s = sim.get(row.get("id"), 0.0)
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"Dok-Typ-> {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} -> {row.get('einreicher','')}  \n"
             f"{preview}…  \n"
             f"Ähnlichkeit: {s:.2f}  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
+            f"zur Drucksache-> {pdf_md}"
         )
 
     total = len(rows)
@@ -318,7 +319,7 @@ def do_search(q, typ, status, von, bis, page, sort):
         pdf_md = _pdf_link(row.get("pdf_url"))
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"Dok-Typ-> {row.get('typ','?')} Status: {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} -> {row.get('einreicher','')}  \n"
+            f"Dok-Typ-> {row.get('typ','?')} - Status: {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} -> {row.get('einreicher','')}  \n"
             f"{preview}…  \n"
             #f"ID: `{row.get('id','?')}`{pdf_md}"
             f"zur Drucksache: {pdf_md}"
@@ -358,6 +359,7 @@ def show_detail(typ, id_):
     f"**Typ:** {typ}  \n"
     f"**Status:** {d.get('status','')}  \n"
     f"**Fraktion:** {d.get('fraktion','')}  \n"
+    f"**Autor:** {d.get('einreicher','')}  \n"
     f"**Datum:** {d.get('datum','')}\n\n"
     f"**Inhalt:**\n{d.get('inhalt') or ''}\n\n"
     f"**Drucksache:** {d.get('drucksache','-')}  \n"
@@ -431,7 +433,7 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             
             with gr.Row():
                  autor = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
-                 status = gr.Dropdown(label="Status",choices=["eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
+                 status = gr.Dropdown(label="Status",choices=["", "eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
 
             with gr.Row(elem_classes="filters"):
                 with gr.Column(scale=1, min_width=160):
