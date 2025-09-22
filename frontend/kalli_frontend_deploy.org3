@@ -108,16 +108,17 @@ def _embed_query(text: str) -> list[float]:
     )
     return resp.data[0].embedding  #Liste von 1536 Gleitkommazahlen (float)
 
+
 def do_search_sem_db(q, typ, status, von, bis, page, sort):
     """
     Semantische Suche auf bvv_dokumente.
     Parameter:
       q: Suchtext (String)
       typ: Liste Typen (oder [])
-      status: Dropdown -> String; wird intern in Liste normiert und gefiltert
-      von/bis: Datumsfilter (Strings)
-      page: ignoriert (Top-N semantisch)
-      sort: ignoriert (Similarity dominiert)
+      status: aktuell ungenutzt für semantische Suche
+      von/bis: Datumsfilter
+      page: Pager (hier ignoriert, weil semantisch immer Top-N)
+      sort: Sortierung (wird von similarity übersteuert)
     """
 
     # Guard: Nur ausführen, wenn Text oder Filter gesetzt
@@ -125,66 +126,42 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         gr.Warning("Bitte Suchbegriff eingeben ODER mind. einen Filter setzen.")
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-    # --- Embedding erzeugen ---
     try:
         q_vec = _embed_query(q or "BVV Berlin Vorgänge allgemein")
     except Exception as e:
         gr.Warning(f"Embedding fehlgeschlagen: {e}")
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-
-    limit   = max(STATE.get("limit", 10), 20)
+    
+    limit = max(STATE["limit"], 20)
     typ_arg = typ or None
     von_arg = von or None
     bis_arg = bis or None
 
-    # --- RPC: nur für Similarity + Typ/Datum; Status filtern wir clientseitig sicher nach ---
     try:
         rpc = sb.rpc("match_bvv_dokumente", {
             "query_embedding": q_vec,
             "match_count": limit,
-            "match_threshold": 0.3,
+            "match_threshold": 0.3, 
             "typ_filter": typ_arg,
-            # "status_filter": _as_list_or_none(status),  # optional serverseitig – erst aktivieren, wenn DB-Funktion erweitert ist
             "von": von_arg,
             "bis": bis_arg,
-            "published_only": False
+            "published_only": False   # erstmal AUS, bis Datenlage sauber
         }).execute()
         hits = rpc.data or []
-        #gr.Info(f"RPC semantisch: {len(hits)} Treffer (vor Nachfilter)")
+        gr.Info(f"RPC: {len(hits)} Treffer (semantisch)")
     except Exception as e:
         gr.Warning(f"Vektor-Suche fehlgeschlagen: {e}")
         hits = []
 
-    # --- IDs + Similarity-Map ---
-    ids = [h.get("id") for h in hits if h.get("id") is not None]
-    sim = {h.get("id"): h.get("similarity", 0.0) for h in hits if h.get("id") is not None}
+    # IDs + Similarity-Map
+    ids = [h["id"] for h in hits]
+    sim = {h["id"]: h.get("similarity", 0.0) for h in hits}
 
-    # --- Status normalisieren & NACHFILTERN (garantiert wirksam) ---
-    status_arg = _as_list_or_none(status)
+    # Vollständige Datensätze holen
+    rows = sb.table("bvv_dokumente").select("*").in_("id", ids).execute().data or []
+    rows.sort(key=lambda r: sim.get(r["id"], 0), reverse=True)
 
-    query = sb.table("bvv_dokumente").select("*")
-    if ids:
-        query = query.in_("id", ids)
-    else:
-        # Keine IDs -> leer
-        rows = []
-        total = 0
-        out_md = "**0–0 von 0 (semantisch)**\n\n_Keine Treffer._"
-        return out_md, gr.update(interactive=False), gr.update(interactive=False), 1, "0–0 / 0"
-
-    if status_arg:
-        query = query.in_("status", status_arg)
-
-    try:
-        rows = query.execute().data or []
-    except Exception as e:
-        gr.Warning(f"Datenabruf fehlgeschlagen: {e}")
-        rows = []
-
-    # Nach Similarity sortieren (damit die Reihenfolge dem RPC entspricht)
-    rows.sort(key=lambda r: sim.get(r.get("id"), 0.0), reverse=True)
-
-    # --- Render ---
+    # Render wie in klassischer Suche
     body = []
     for row in rows:
         preview = (row.get("inhalt") or "")[:220]
@@ -192,17 +169,18 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         s = sim.get(row.get("id"), 0.0)
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"Dok-Typ-> {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} -> {row.get('einreicher','')}  \n"
             f"{preview}…  \n"
             f"Ähnlichkeit: {s:.2f}  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
+            f"zur Drucksache-> {pdf_md}"
         )
 
     total = len(rows)
     start, end = (1 if total else 0), total
-    out_md = f"**{start}–{end} von {total} (semantisch)**\n\n" + ("\n\n---\n\n".join(body) if body else "_Keine Treffer._")
+    out_md = f"**{start}–{end} von {total} (semantisch)**\n\n" + ("\n\n---\n\n".join(body))
 
-    # Pager bleibt aus – wir holen Top-N
+    # Pager bleibt aus – wir holen nur Top-N
     return out_md, gr.update(interactive=False), gr.update(interactive=False), 1, f"{start}–{end} / {total}"
 
 
@@ -455,7 +433,7 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
             
             with gr.Row():
                  autor = gr.Dropdown(label="Eingereicht von", choices=["Franck", "Kasper", "Turban"], multiselect=True)
-                 status = gr.Dropdown(label="Status",choices=["eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
+                 status = gr.Dropdown(label="Status",choices=["", "eingereicht", "beantwortet", "abgelehnt", "zugestimmt"],multiselect=False)
 
             with gr.Row(elem_classes="filters"):
                 with gr.Column(scale=1, min_width=160):
