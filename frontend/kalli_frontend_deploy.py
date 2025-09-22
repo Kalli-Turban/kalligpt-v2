@@ -192,10 +192,11 @@ def do_search_sem_db(q, typ, status, von, bis, page, sort):
         s = sim.get(row.get("id"), 0.0)
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"Dok-Typ-> {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} - Eingereicht von: {row.get('einreicher','')}  \n"
             f"{preview}…  \n"
-            f"Ähnlichkeit: {s:.2f}  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"Ähnlichkeit: {s:.2f}  \n"
+            f"Dokument: {pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
         )
 
     total = len(rows)
@@ -216,7 +217,7 @@ def _apply_filters(query, *, q: str | None, typ: list[str] | None, status: list[
     if typ:
         query = query.in_("typ", typ)
     if status:
-        query = query.in_("status", status)
+        query = query.in_("status", status)    
     if von:
         query = query.gte("datum", von)
     if bis:
