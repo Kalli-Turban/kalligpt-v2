@@ -318,9 +318,10 @@ def do_search(q, typ, status, von, bis, page, sort):
         pdf_md = _pdf_link(row.get("pdf_url"))
         body.append(
             f"📄 **{row.get('titel','(ohne Titel)')}**  \n"
-            f"— {row.get('typ','?')} · {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')}  \n"
+            f"Dok-Typ-> {row.get('typ','?')} Status: {row.get('status','?')} · {row.get('datum','?')} · {row.get('fraktion','')} -> {row.get('einreicher','')}  \n"
             f"{preview}…  \n"
-            f"ID: `{row.get('id','?')}`{pdf_md}"
+            #f"ID: `{row.get('id','?')}`{pdf_md}"
+            f"zur Drucksache: {pdf_md}"
         )
 
     header = f"**{start}–{end} von {total} Einträgen**\n\n"
@@ -488,9 +489,9 @@ with gr.Blocks(css=CUSTOM_CSS, title=f"{APP_TITLE} · {__APP_VERSION__}") as dem
 
 if __name__ == "__main__":
     # Für Deployment (Render, Docker etc.):
-    #demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 
     # Für lokalen Test:
-    demo.launch()
+    #demo.launch()
 
 
